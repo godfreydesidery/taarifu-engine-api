@@ -7,7 +7,6 @@ import com.taarifu_engine_api.modules.location.area.domain.dto.AreaResponse;
 import com.taarifu_engine_api.modules.location.area.domain.entity.Area;
 import com.taarifu_engine_api.modules.location.area.repository.AreaRepository;
 import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
-import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -28,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class AreaServiceImpl implements AreaService {
 
     private final AreaRepository areaRepository;
-    private final UserRepository userRepository;
 
     @Override
     public Area createArea(AreaType areaType, Long areaId, String name) {
@@ -44,17 +42,23 @@ public class AreaServiceImpl implements AreaService {
         // Get current authenticated user
         User currentUser = getCurrentAuthenticatedUser();
 
-        // Create new area
+        // Create new area with temporary code
         Area area = new Area();
         area.ensureUid();
         area.setAreaType(areaType);
         area.setAreaId(areaId);
         area.setName(name);
-        area.setAreaCode(getNextSequenceNumber());
+        area.setCode("TEMP"); // Temporary code
         area.setCreatedBy(currentUser);
         area.setUpdatedBy(currentUser);
 
+        // Save first to get the ID
         Area savedArea = areaRepository.save(area);
+        
+        // Generate proper code using the ID and update
+        String properCode = String.format("AR%011d", savedArea.getId());
+        savedArea.setCode(properCode);
+        savedArea = areaRepository.save(savedArea);
         log.info("Created area with code: {} for type: {} with areaId: {} and name: {}", 
                 savedArea.getCode(), areaType, areaId, name);
 
@@ -181,7 +185,9 @@ public class AreaServiceImpl implements AreaService {
 
     @Override
     public String generateNextAreaCode() {
-        int nextSequence = getNextSequenceNumber();
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = areaRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
         return String.format("AR%011d", nextSequence);
     }
 
@@ -222,24 +228,6 @@ public class AreaServiceImpl implements AreaService {
         return response;
     }
 
-    /**
-     * Get the next sequence number for area code generation
-     */
-    private int getNextSequenceNumber() {
-        return areaRepository.findFirstByOrderByCodeDesc()
-                .map(area -> {
-                    String code = area.getCode();
-                    if (code != null && code.startsWith("AR") && code.length() == 13) {
-                        try {
-                            return Integer.parseInt(code.substring(2)) + 1;
-                        } catch (NumberFormatException e) {
-                            log.warn("Invalid area code format: {}", code);
-                        }
-                    }
-                    return 1;
-                })
-                .orElse(1);
-    }
 
     /**
      * Get the current authenticated user from SecurityContext

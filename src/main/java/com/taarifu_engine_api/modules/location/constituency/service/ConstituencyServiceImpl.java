@@ -284,21 +284,10 @@ public class ConstituencyServiceImpl implements ConstituencyService {
     }
 
     private String generateNextConstituencyCode() {
-        Constituency lastConstituency = constituencyRepository.findFirstByOrderByCodeDesc().orElse(null);
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = constituencyRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
         
-        int nextSequence = 1;
-        if (lastConstituency != null && lastConstituency.getCode() != null) {
-            try {
-                String lastCode = lastConstituency.getCode();
-                if (lastCode.startsWith("CT") && lastCode.length() == 8) {
-                    String sequencePart = lastCode.substring(2);
-                    nextSequence = Integer.parseInt(sequencePart) + 1;
-                }
-            } catch (NumberFormatException e) {
-                log.warn("Failed to parse last constituency code: {}, starting from 1", lastConstituency.getCode());
-            }
-        }
-
         return String.format("CT%06d", nextSequence);
     }
 

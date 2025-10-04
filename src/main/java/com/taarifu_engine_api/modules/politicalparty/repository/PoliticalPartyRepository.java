@@ -113,9 +113,10 @@ public interface PoliticalPartyRepository extends JpaRepository<PoliticalParty, 
     Page<PoliticalParty> searchPoliticalParties(@Param("searchTerm") String searchTerm, Pageable pageable);
 
     /**
-     * Find the political party with the highest code (for sequence generation)
+     * Find the maximum ID for generating next sequence number
      */
-    Optional<PoliticalParty> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(p.id) FROM PoliticalParty p")
+    Long findMaxId();
 
     /**
      * Count political parties by status

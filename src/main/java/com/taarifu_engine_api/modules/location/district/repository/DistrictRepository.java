@@ -118,7 +118,8 @@ public interface DistrictRepository extends JpaRepository<District, Long> {
     /**
      * Find the district with the highest code (for generating next code)
      */
-    Optional<District> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(d.id) FROM District d")
+    Long findMaxId();
 
     /**
      * Find district by UID with user and region details (to avoid N+1 queries)

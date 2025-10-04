@@ -71,10 +71,10 @@ public interface AreaRepository extends JpaRepository<Area, Long> {
     long countByAreaType(AreaType areaType);
 
     /**
-     * Find the area with the highest code number for generating next code
+     * Find the maximum ID for generating next sequence number
      */
-    @Query("SELECT a FROM Area a ORDER BY a.code DESC")
-    Optional<Area> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(a.id) FROM Area a")
+    Long findMaxId();
 
     /**
      * Find areas by area type with pagination

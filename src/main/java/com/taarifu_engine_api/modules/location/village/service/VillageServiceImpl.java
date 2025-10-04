@@ -288,21 +288,10 @@ public class VillageServiceImpl implements VillageService {
     }
 
     private String generateNextVillageCode() {
-        Village lastVillage = villageRepository.findFirstByOrderByCodeDesc().orElse(null);
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = villageRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
         
-        int nextSequence = 1;
-        if (lastVillage != null && lastVillage.getCode() != null) {
-            try {
-                String lastCode = lastVillage.getCode();
-                if (lastCode.startsWith("VL") && lastCode.length() == 9) {
-                    String sequencePart = lastCode.substring(2);
-                    nextSequence = Integer.parseInt(sequencePart) + 1;
-                }
-            } catch (NumberFormatException e) {
-                log.warn("Failed to parse last village code: {}, starting from 1", lastVillage.getCode());
-            }
-        }
-
         return String.format("VL%07d", nextSequence);
     }
 

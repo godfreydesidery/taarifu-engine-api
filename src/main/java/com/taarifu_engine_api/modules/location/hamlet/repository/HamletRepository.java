@@ -118,7 +118,8 @@ public interface HamletRepository extends JpaRepository<Hamlet, Long> {
     /**
      * Find the hamlet with the highest code (for generating next code)
      */
-    Optional<Hamlet> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(h.id) FROM Hamlet h")
+    Long findMaxId();
 
     /**
      * Find hamlet by UID with user and village details (to avoid N+1 queries)

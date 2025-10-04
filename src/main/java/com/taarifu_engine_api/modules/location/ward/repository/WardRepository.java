@@ -118,7 +118,8 @@ public interface WardRepository extends JpaRepository<Ward, Long> {
     /**
      * Find the ward with the highest code (for generating next code)
      */
-    Optional<Ward> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(w.id) FROM Ward w")
+    Long findMaxId();
 
     /**
      * Find ward by UID with user and district details (to avoid N+1 queries)

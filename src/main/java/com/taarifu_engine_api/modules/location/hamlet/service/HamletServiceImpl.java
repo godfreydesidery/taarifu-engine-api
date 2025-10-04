@@ -288,21 +288,10 @@ public class HamletServiceImpl implements HamletService {
     }
 
     private String generateNextHamletCode() {
-        Hamlet lastHamlet = hamletRepository.findFirstByOrderByCodeDesc().orElse(null);
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = hamletRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
         
-        int nextSequence = 1;
-        if (lastHamlet != null && lastHamlet.getCode() != null) {
-            try {
-                String lastCode = lastHamlet.getCode();
-                if (lastCode.startsWith("HM") && lastCode.length() == 9) {
-                    String sequencePart = lastCode.substring(2);
-                    nextSequence = Integer.parseInt(sequencePart) + 1;
-                }
-            } catch (NumberFormatException e) {
-                log.warn("Failed to parse last hamlet code: {}, starting from 1", lastHamlet.getCode());
-            }
-        }
-
         return String.format("HM%07d", nextSequence);
     }
 

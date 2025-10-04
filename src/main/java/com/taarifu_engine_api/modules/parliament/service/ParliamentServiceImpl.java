@@ -8,7 +8,6 @@ import com.taarifu_engine_api.modules.parliament.domain.dto.UpdateParliamentRequ
 import com.taarifu_engine_api.modules.parliament.domain.entity.Parliament;
 import com.taarifu_engine_api.modules.parliament.repository.ParliamentRepository;
 import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
-import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -31,7 +30,6 @@ import java.time.LocalDate;
 public class ParliamentServiceImpl implements ParliamentService {
 
     private final ParliamentRepository parliamentRepository;
-    private final UserRepository userRepository;
 
     @Override
     public ParliamentResponseDto createParliament(CreateParliamentRequestDto request) {
@@ -45,15 +43,12 @@ public class ParliamentServiceImpl implements ParliamentService {
             throw new ApiException("Parliament with name '" + request.getName() + "' already exists", HttpStatus.BAD_REQUEST);
         }
 
-        // Generate next parliament code
-        String nextParliamentCode = generateNextParliamentCode();
-
         // Get current authenticated user
         User currentUser = getCurrentAuthenticatedUser();
 
-        // Create new parliament
+        // Create new parliament with temporary code
         Parliament parliament = new Parliament();
-        parliament.setCode(nextParliamentCode);
+        parliament.setCode("TEMP"); // Temporary code
         parliament.setName(request.getName());
         parliament.setDescription(request.getDescription());
         parliament.setStartDate(request.getStartDate());
@@ -66,7 +61,14 @@ public class ParliamentServiceImpl implements ParliamentService {
         // Ensure UID is generated
         parliament.ensureUid();
 
+        // Save first to get the ID
         Parliament savedParliament = parliamentRepository.save(parliament);
+        
+        // Generate proper code using the ID and update
+        String properCode = String.format("PT%06d", savedParliament.getId());
+        savedParliament.setCode(properCode);
+        savedParliament = parliamentRepository.save(savedParliament);
+        
         log.info("Successfully created parliament with ID: {}, UID: {}, and code: {}", 
                 savedParliament.getId(), savedParliament.getUid(), savedParliament.getCode());
 
@@ -358,26 +360,6 @@ public class ParliamentServiceImpl implements ParliamentService {
         }
     }
 
-    /**
-     * Generate the next parliament code
-     */
-    private String generateNextParliamentCode() {
-        Parliament lastParliament = parliamentRepository.findFirstByOrderByCodeDesc().orElse(null);
-        
-        int nextSequenceNumber = 1;
-        if (lastParliament != null) {
-            String code = lastParliament.getCode();
-            if (code != null && code.startsWith("PT") && code.length() == 8) {
-                try {
-                    nextSequenceNumber = Integer.parseInt(code.substring(2)) + 1;
-                } catch (NumberFormatException e) {
-                    log.warn("Invalid parliament code format: {}", code);
-                }
-            }
-        }
-        
-        return String.format("PT%06d", nextSequenceNumber);
-    }
 
     /**
      * Get the current authenticated user from SecurityContext

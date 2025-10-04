@@ -288,21 +288,10 @@ public class WardServiceImpl implements WardService {
     }
 
     private String generateNextWardCode() {
-        Ward lastWard = wardRepository.findFirstByOrderByCodeDesc().orElse(null);
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = wardRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
         
-        int nextSequence = 1;
-        if (lastWard != null && lastWard.getCode() != null) {
-            try {
-                String lastCode = lastWard.getCode();
-                if (lastCode.startsWith("WD") && lastCode.length() == 8) {
-                    String sequencePart = lastCode.substring(2);
-                    nextSequence = Integer.parseInt(sequencePart) + 1;
-                }
-            } catch (NumberFormatException e) {
-                log.warn("Failed to parse last ward code: {}, starting from 1", lastWard.getCode());
-            }
-        }
-
         return String.format("WD%06d", nextSequence);
     }
 

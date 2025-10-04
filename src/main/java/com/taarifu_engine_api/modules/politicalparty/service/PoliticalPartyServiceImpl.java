@@ -8,7 +8,6 @@ import com.taarifu_engine_api.modules.politicalparty.domain.dto.UpdatePoliticalP
 import com.taarifu_engine_api.modules.politicalparty.domain.entity.PoliticalParty;
 import com.taarifu_engine_api.modules.politicalparty.repository.PoliticalPartyRepository;
 import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
-import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -31,7 +30,6 @@ import java.time.LocalDate;
 public class PoliticalPartyServiceImpl implements PoliticalPartyService {
 
     private final PoliticalPartyRepository politicalPartyRepository;
-    private final UserRepository userRepository;
 
     @Override
     public PoliticalPartyResponseDto createPoliticalParty(CreatePoliticalPartyRequestDto request) {
@@ -47,15 +45,12 @@ public class PoliticalPartyServiceImpl implements PoliticalPartyService {
             throw new ApiException("Political party with abbreviation '" + request.getAbbreviation() + "' already exists", HttpStatus.BAD_REQUEST);
         }
 
-        // Generate next political party code
-        String nextPoliticalPartyCode = generateNextPoliticalPartyCode();
-
         // Get current authenticated user
         User currentUser = getCurrentAuthenticatedUser();
 
-        // Create new political party
+        // Create new political party with temporary code
         PoliticalParty politicalParty = new PoliticalParty();
-        politicalParty.setCode(nextPoliticalPartyCode);
+        politicalParty.setCode("TEMP"); // Temporary code
         politicalParty.setName(request.getName());
         politicalParty.setAbbreviation(request.getAbbreviation());
         politicalParty.setDescription(request.getDescription());
@@ -80,7 +75,14 @@ public class PoliticalPartyServiceImpl implements PoliticalPartyService {
         // Ensure UID is generated
         politicalParty.ensureUid();
 
+        // Save first to get the ID
         PoliticalParty savedPoliticalParty = politicalPartyRepository.save(politicalParty);
+        
+        // Generate proper code using the ID and update
+        String properCode = String.format("PP%06d", savedPoliticalParty.getId());
+        savedPoliticalParty.setCode(properCode);
+        savedPoliticalParty = politicalPartyRepository.save(savedPoliticalParty);
+        
         log.info("Successfully created political party with ID: {}, UID: {}, and code: {}", 
                 savedPoliticalParty.getId(), savedPoliticalParty.getUid(), savedPoliticalParty.getCode());
 
@@ -466,26 +468,6 @@ public class PoliticalPartyServiceImpl implements PoliticalPartyService {
         return response;
     }
 
-    /**
-     * Generate the next political party code
-     */
-    private String generateNextPoliticalPartyCode() {
-        PoliticalParty lastPoliticalParty = politicalPartyRepository.findFirstByOrderByCodeDesc().orElse(null);
-        
-        int nextSequenceNumber = 1;
-        if (lastPoliticalParty != null) {
-            String code = lastPoliticalParty.getCode();
-            if (code != null && code.startsWith("PP") && code.length() == 8) {
-                try {
-                    nextSequenceNumber = Integer.parseInt(code.substring(2)) + 1;
-                } catch (NumberFormatException e) {
-                    log.warn("Invalid political party code format: {}", code);
-                }
-            }
-        }
-        
-        return String.format("PP%06d", nextSequenceNumber);
-    }
 
     /**
      * Get the current authenticated user from SecurityContext

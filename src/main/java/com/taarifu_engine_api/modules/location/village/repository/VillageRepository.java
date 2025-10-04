@@ -118,7 +118,8 @@ public interface VillageRepository extends JpaRepository<Village, Long> {
     /**
      * Find the village with the highest code (for generating next code)
      */
-    Optional<Village> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(v.id) FROM Village v")
+    Long findMaxId();
 
     /**
      * Find village by UID with user and ward details (to avoid N+1 queries)

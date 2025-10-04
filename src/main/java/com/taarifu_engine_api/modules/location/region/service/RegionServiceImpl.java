@@ -305,24 +305,11 @@ public class RegionServiceImpl implements RegionService {
      * @return the next region code (e.g., RG0001, RG0002, etc.)
      */
     private String generateNextRegionCode() {
-        // Find the highest existing region code
-        String highestCode = regionRepository.findFirstByOrderByCodeDesc()
-                .map(Region::getCode)
-                .orElse("RG0000");
-
-        // Extract the number part and increment
-        if (highestCode.startsWith("RG")) {
-            try {
-                String numberPart = highestCode.substring(2);
-                int nextNumber = Integer.parseInt(numberPart) + 1;
-                return String.format("RG%04d", nextNumber);
-            } catch (NumberFormatException e) {
-                log.warn("Invalid region code format found: {}, starting from RG0001", highestCode);
-            }
-        }
-
-        // If no valid code found or error, start from RG0001
-        return "RG0001";
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = regionRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
+        
+        return String.format("RG%04d", nextSequence);
     }
 
     /**

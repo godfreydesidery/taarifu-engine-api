@@ -374,24 +374,11 @@ public class DistrictServiceImpl implements DistrictService {
      * @return the next district code (e.g., DT0001, DT0002, etc.)
      */
     private String generateNextDistrictCode() {
-        // Find the highest existing district code
-        String highestCode = districtRepository.findFirstByOrderByCodeDesc()
-                .map(District::getCode)
-                .orElse("DT0000");
-
-        // Extract the number part and increment
-        if (highestCode.startsWith("DT")) {
-            try {
-                String numberPart = highestCode.substring(2);
-                int nextNumber = Integer.parseInt(numberPart) + 1;
-                return String.format("DT%04d", nextNumber);
-            } catch (NumberFormatException e) {
-                log.warn("Invalid district code format found: {}, starting from DT0001", highestCode);
-            }
-        }
-
-        // If no valid code found or error, start from DT0001
-        return "DT0001";
+        // Use the maximum ID + 1 as the sequence number
+        Long maxId = districtRepository.findMaxId();
+        int nextSequence = maxId != null ? maxId.intValue() + 1 : 1;
+        
+        return String.format("DT%06d", nextSequence);
     }
 
     /**

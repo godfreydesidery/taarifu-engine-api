@@ -116,7 +116,8 @@ public interface ConstituencyRepository extends JpaRepository<Constituency, Long
     /**
      * Find the constituency with the highest code (for generating next code)
      */
-    Optional<Constituency> findFirstByOrderByCodeDesc();
+    @Query("SELECT MAX(c.id) FROM Constituency c")
+    Long findMaxId();
 
     /**
      * Find constituency by UID with user and district details (to avoid N+1 queries)
