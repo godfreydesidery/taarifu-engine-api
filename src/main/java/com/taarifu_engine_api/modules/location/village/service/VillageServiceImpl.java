@@ -288,7 +288,7 @@ public class VillageServiceImpl implements VillageService {
     }
 
     private String generateNextVillageCode() {
-        Village lastVillage = villageRepository.findTopByOrderByCodeDesc().orElse(null);
+        Village lastVillage = villageRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequence = 1;
         if (lastVillage != null && lastVillage.getCode() != null) {

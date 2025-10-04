@@ -84,7 +84,7 @@ public interface RegionRepository extends JpaRepository<Region, Long> {
     /**
      * Find the region with the highest code (for generating next code)
      */
-    Optional<Region> findTopByOrderByCodeDesc();
+    Optional<Region> findFirstByOrderByCodeDesc();
 
     /**
      * Find region by UID with user details (to avoid N+1 queries)

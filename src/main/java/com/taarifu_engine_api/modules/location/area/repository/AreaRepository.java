@@ -74,7 +74,7 @@ public interface AreaRepository extends JpaRepository<Area, Long> {
      * Find the area with the highest code number for generating next code
      */
     @Query("SELECT a FROM Area a ORDER BY a.code DESC")
-    Optional<Area> findTopByOrderByCodeDesc();
+    Optional<Area> findFirstByOrderByCodeDesc();
 
     /**
      * Find areas by area type with pagination

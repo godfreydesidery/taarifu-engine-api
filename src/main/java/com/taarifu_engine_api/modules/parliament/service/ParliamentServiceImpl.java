@@ -362,7 +362,7 @@ public class ParliamentServiceImpl implements ParliamentService {
      * Generate the next parliament code
      */
     private String generateNextParliamentCode() {
-        Parliament lastParliament = parliamentRepository.findTopByOrderByCodeDesc().orElse(null);
+        Parliament lastParliament = parliamentRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequenceNumber = 1;
         if (lastParliament != null) {

@@ -288,7 +288,7 @@ public class WardServiceImpl implements WardService {
     }
 
     private String generateNextWardCode() {
-        Ward lastWard = wardRepository.findTopByOrderByCodeDesc().orElse(null);
+        Ward lastWard = wardRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequence = 1;
         if (lastWard != null && lastWard.getCode() != null) {

@@ -226,7 +226,7 @@ public class AreaServiceImpl implements AreaService {
      * Get the next sequence number for area code generation
      */
     private int getNextSequenceNumber() {
-        return areaRepository.findTopByOrderByCodeDesc()
+        return areaRepository.findFirstByOrderByCodeDesc()
                 .map(area -> {
                     String code = area.getCode();
                     if (code != null && code.startsWith("AR") && code.length() == 13) {

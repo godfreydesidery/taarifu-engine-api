@@ -284,7 +284,7 @@ public class ConstituencyServiceImpl implements ConstituencyService {
     }
 
     private String generateNextConstituencyCode() {
-        Constituency lastConstituency = constituencyRepository.findTopByOrderByCodeDesc().orElse(null);
+        Constituency lastConstituency = constituencyRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequence = 1;
         if (lastConstituency != null && lastConstituency.getCode() != null) {

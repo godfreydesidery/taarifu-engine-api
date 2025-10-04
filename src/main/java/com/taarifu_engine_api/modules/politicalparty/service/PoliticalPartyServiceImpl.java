@@ -470,7 +470,7 @@ public class PoliticalPartyServiceImpl implements PoliticalPartyService {
      * Generate the next political party code
      */
     private String generateNextPoliticalPartyCode() {
-        PoliticalParty lastPoliticalParty = politicalPartyRepository.findTopByOrderByCodeDesc().orElse(null);
+        PoliticalParty lastPoliticalParty = politicalPartyRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequenceNumber = 1;
         if (lastPoliticalParty != null) {

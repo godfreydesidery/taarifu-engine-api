@@ -115,7 +115,7 @@ public interface PoliticalPartyRepository extends JpaRepository<PoliticalParty, 
     /**
      * Find the political party with the highest code (for sequence generation)
      */
-    Optional<PoliticalParty> findTopByOrderByCodeDesc();
+    Optional<PoliticalParty> findFirstByOrderByCodeDesc();
 
     /**
      * Count political parties by status

@@ -86,7 +86,7 @@ public interface ParliamentRepository extends JpaRepository<Parliament, Long> {
     /**
      * Find the parliament with the highest code (for sequence generation)
      */
-    Optional<Parliament> findTopByOrderByCodeDesc();
+    Optional<Parliament> findFirstByOrderByCodeDesc();
 
     /**
      * Count parliaments by status

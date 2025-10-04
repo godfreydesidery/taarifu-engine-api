@@ -118,7 +118,7 @@ public interface DistrictRepository extends JpaRepository<District, Long> {
     /**
      * Find the district with the highest code (for generating next code)
      */
-    Optional<District> findTopByOrderByCodeDesc();
+    Optional<District> findFirstByOrderByCodeDesc();
 
     /**
      * Find district by UID with user and region details (to avoid N+1 queries)

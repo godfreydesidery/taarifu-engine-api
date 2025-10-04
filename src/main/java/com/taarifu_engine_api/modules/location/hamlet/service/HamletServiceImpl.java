@@ -288,7 +288,7 @@ public class HamletServiceImpl implements HamletService {
     }
 
     private String generateNextHamletCode() {
-        Hamlet lastHamlet = hamletRepository.findTopByOrderByCodeDesc().orElse(null);
+        Hamlet lastHamlet = hamletRepository.findFirstByOrderByCodeDesc().orElse(null);
         
         int nextSequence = 1;
         if (lastHamlet != null && lastHamlet.getCode() != null) {

@@ -375,7 +375,7 @@ public class DistrictServiceImpl implements DistrictService {
      */
     private String generateNextDistrictCode() {
         // Find the highest existing district code
-        String highestCode = districtRepository.findTopByOrderByCodeDesc()
+        String highestCode = districtRepository.findFirstByOrderByCodeDesc()
                 .map(District::getCode)
                 .orElse("DT0000");
 

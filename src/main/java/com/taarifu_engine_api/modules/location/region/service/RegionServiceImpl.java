@@ -306,7 +306,7 @@ public class RegionServiceImpl implements RegionService {
      */
     private String generateNextRegionCode() {
         // Find the highest existing region code
-        String highestCode = regionRepository.findTopByOrderByCodeDesc()
+        String highestCode = regionRepository.findFirstByOrderByCodeDesc()
                 .map(Region::getCode)
                 .orElse("RG0000");
 
