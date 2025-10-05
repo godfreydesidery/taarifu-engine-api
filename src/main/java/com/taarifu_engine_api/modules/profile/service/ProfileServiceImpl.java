@@ -1,5 +1,6 @@
 package com.taarifu_engine_api.modules.profile.service;
 
+import com.taarifu_engine_api.modules.citizen.service.CitizenService;
 import com.taarifu_engine_api.modules.common.exception.ApiException;
 import org.springframework.http.HttpStatus;
 import com.taarifu_engine_api.modules.profile.domain.dto.CreateProfileRequestDto;
@@ -35,6 +36,7 @@ public class ProfileServiceImpl implements ProfileService {
 
     private final ProfileRepository profileRepository;
     private final UserRepository userRepository;
+    private final CitizenService citizenService;
     private final ULID ulid = new ULID();
 
     @Override
@@ -92,6 +94,18 @@ public class ProfileServiceImpl implements ProfileService {
         
         Profile savedProfile = profileRepository.save(profile);
         log.info("Profile with user created successfully with ID: {}", savedProfile.getId());
+        
+        // Automatically create citizen if profile type is PERSON
+        if (ProfileType.PERSON.equals(savedProfile.getProfileType())) {
+            try {
+                citizenService.createCitizenForProfile(savedProfile);
+                log.info("Citizen automatically created for PERSON profile: {}", savedProfile.getUid());
+            } catch (Exception e) {
+                log.error("Failed to create citizen for profile: {}", savedProfile.getUid(), e);
+                // Note: We don't throw here to avoid rolling back the profile creation
+                // The citizen can be created later through other means
+            }
+        }
         
         return mapToResponseDto(savedProfile);
     }
