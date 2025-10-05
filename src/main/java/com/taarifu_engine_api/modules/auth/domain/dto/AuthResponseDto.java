@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Data Transfer Object for authentication responses.
@@ -86,4 +87,10 @@ public class AuthResponseDto {
      * This will be added when JWT implementation is complete.
      */
     private String tokenType = "Bearer";
+
+    /**
+     * User's designations/titles/roles as an array of strings.
+     * Contains all designations associated with the user.
+     */
+    private List<String> designations;
 }

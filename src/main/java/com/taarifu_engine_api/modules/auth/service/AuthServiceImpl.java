@@ -8,9 +8,13 @@ import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.ResetPasswordWithTokenDto;
 import com.taarifu_engine_api.modules.common.domain.enums.PasswordStrength;
 import com.taarifu_engine_api.modules.common.domain.util.PasswordStrengthCalculator;
+import com.taarifu_engine_api.modules.citizen.service.CitizenService;
 import com.taarifu_engine_api.modules.common.exception.ApiException;
 import com.taarifu_engine_api.modules.notification.domain.enums.EmailType;
 import com.taarifu_engine_api.modules.notification.service.EmailService;
+import com.taarifu_engine_api.modules.profile.domain.entity.Profile;
+import com.taarifu_engine_api.modules.profile.domain.enums.ProfileType;
+import com.taarifu_engine_api.modules.profile.repository.ProfileRepository;
 import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
 import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
@@ -23,7 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -36,6 +42,8 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final EmailService emailService;
+    private final CitizenService citizenService;
+    private final ProfileRepository profileRepository;
 
     @Override
     public AuthResponseDto authenticateAdmin(AuthRequestDto request) {
@@ -217,6 +225,9 @@ public class AuthServiceImpl implements AuthService {
         authResponse.setLastLoginAt(user.getLastLoginAt());
         authResponse.setCreatedAt(user.getCreatedAt());
         
+        // Set designations (placeholder implementation - can be enhanced later)
+        authResponse.setDesignations(getUserDesignations(user));
+        
         // Generate JWT tokens based on password change requirement
         if (user.getRequirePasswordChange()) {
             // Limited access token (5 minutes) - no refresh token - only password change allowed
@@ -238,6 +249,41 @@ public class AuthServiceImpl implements AuthService {
         authResponse.setTokenType("Bearer");
         
         return authResponse;
+    }
+
+    /**
+     * Get user designations/titles/roles
+     * Designations are determined based on user type, profile type, and associated records
+     * Possible values: CITIZEN, MP, MP_ASSISTANT, ORGANIZATION, etc.
+     */
+    private List<String> getUserDesignations(User user) {
+        List<String> designations = new ArrayList<>();
+        
+        // Check if user is USER type with PERSON profile
+        if (user.getUserType() == UserType.USER) {
+            // Get user's profile
+            Optional<Profile> profileOpt = profileRepository.findByUser(user);
+            
+            if (profileOpt.isPresent()) {
+                Profile profile = profileOpt.get();
+                
+                // If profile type is PERSON, check if user has citizen record
+                if (profile.getProfileType() == ProfileType.PERSON) {
+                    // Check if citizen record exists for this profile
+                    if (citizenService.existsCitizenForProfile(profile)) {
+                        designations.add("CITIZEN");
+                    }
+                }
+                
+                // TODO: Add more designation checks here
+                // - Check for MP designation
+                // - Check for MP_ASSISTANT designation
+                // - Check for ORGANIZATION designation
+                // etc.
+            }
+        }
+        
+        return designations;
     }
 
     /**

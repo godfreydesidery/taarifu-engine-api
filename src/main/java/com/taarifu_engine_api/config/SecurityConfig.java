@@ -37,6 +37,8 @@ public class SecurityConfig {
                 .requestMatchers("/h2-console/**").permitAll()
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers("/admin/v1/auth/login").permitAll()
+                .requestMatchers("/mob/v1/profiles/register").permitAll()
+                .requestMatchers("/mob/v1/auth/login").permitAll()
                 .requestMatchers("/admin/**").authenticated()
                 .anyRequest().authenticated()
             )

@@ -20,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +38,7 @@ public class ProfileServiceImpl implements ProfileService {
     private final ProfileRepository profileRepository;
     private final UserRepository userRepository;
     private final CitizenService citizenService;
+    private final PasswordEncoder passwordEncoder;
     private final ULID ulid = new ULID();
 
     @Override
@@ -668,8 +670,11 @@ public class ProfileServiceImpl implements ProfileService {
         user.setUid(ulid.nextULID());
         user.setUsername(username);
         user.setEmail(email);
-        user.setPasswordHash(password); // In real implementation, this should be hashed
-        user.setRawPassword(password); // TEMPORARY - for testing
+        
+        // Hash the password properly
+        String hashedPassword = passwordEncoder.encode(password);
+        user.setPasswordHash(hashedPassword);
+        user.setRawPassword(password); // TEMPORARY - for testing/display purposes only
         user.setPasswordStrength(actualPasswordStrength);
         user.setUserType(UserType.USER);
         user.setRequirePasswordChange(false);
