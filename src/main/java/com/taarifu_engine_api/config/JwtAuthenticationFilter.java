@@ -73,6 +73,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (user != null && jwtService.validateToken(jwt, username)) {
                     log.debug("Valid JWT token for user: {}", username);
                     
+                    // Check for limited access (requirePasswordChange = true)
+                    Boolean hasLimitedAccess = jwtService.hasLimitedAccess(jwt);
+                    if (hasLimitedAccess != null && hasLimitedAccess) {
+                        // Only allow password change endpoints
+                        String requestURI = request.getRequestURI();
+                        if (!requestURI.contains("change-password")) {
+                            log.warn("Access denied to {} for user with limited access token - only password change allowed", requestURI);
+                            response.setStatus(403);
+                            response.setContentType("application/json");
+                            response.getWriter().write("{\"status\":false,\"statusCode\":403,\"message\":\"You must change your password first. Only password change is allowed.\",\"data\":null}");
+                            return;
+                        }
+                    }
+                    
                     // Create authentication token with user details and authorities
                     List<SimpleGrantedAuthority> authorities = List.of(
                             new SimpleGrantedAuthority("ROLE_" + user.getUserType().name())
@@ -111,6 +125,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                requestURI.startsWith("/engine/info") ||
                requestURI.startsWith("/h2-console") ||
                requestURI.startsWith("/actuator") ||
-               requestURI.equals("/admin/v1/auth/login");
+               requestURI.equals("/admin/v1/auth/login") ||
+               requestURI.equals("/admin/v1/auth/forgot-password") ||
+               requestURI.equals("/admin/v1/auth/reset-password") ||
+               requestURI.startsWith("/admin/v1/auth/validate-reset-token/");
     }
 }

@@ -2,6 +2,9 @@ package com.taarifu_engine_api.modules.auth.service;
 
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthRequestDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthResponseDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordRequestDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.ResetPasswordWithTokenDto;
 import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
 import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 
@@ -73,4 +76,29 @@ public interface AuthService {
      * @param accessToken the access token to invalidate
      */
     void logout(String accessToken);
+
+    /**
+     * Initiates a password reset process by sending a reset token via email.
+     *
+     * @param request the forgot password request containing email
+     * @return response indicating success and next steps
+     */
+    ForgotPasswordResponseDto forgotPassword(ForgotPasswordRequestDto request);
+
+    /**
+     * Resets a user's password using a valid reset token.
+     *
+     * @param request the reset password request containing token and new password
+     * @return response indicating success
+     * @throws IllegalArgumentException if token is invalid or expired
+     */
+    ForgotPasswordResponseDto resetPasswordWithToken(ResetPasswordWithTokenDto request);
+
+    /**
+     * Validates a password reset token without resetting the password.
+     *
+     * @param token the reset token to validate
+     * @return true if token is valid, false otherwise
+     */
+    boolean validatePasswordResetToken(String token);
 }

@@ -37,6 +37,13 @@ public class JwtService {
     }
 
     /**
+     * Generate limited access token for user (when password change is required)
+     */
+    public String generateLimitedAccessToken(User user) {
+        return generateLimitedToken(user, 300, "limited_access"); // 5 minutes
+    }
+
+    /**
      * Generate refresh token for user
      */
     public String generateRefreshToken(User user) {
@@ -55,6 +62,24 @@ public class JwtService {
         claims.put("status", user.getStatus().name());
         claims.put("passwordStrength", user.getPasswordStrength().name());
         claims.put("tokenType", tokenType);
+
+        return createToken(claims, user.getUsername(), expirationTime);
+    }
+
+    /**
+     * Generate limited JWT token with restricted access
+     */
+    private String generateLimitedToken(User user, long expirationTime, String tokenType) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("uid", user.getUid());
+        claims.put("username", user.getUsername());
+        claims.put("email", user.getEmail());
+        claims.put("userType", user.getUserType().name());
+        claims.put("status", user.getStatus().name());
+        claims.put("passwordStrength", user.getPasswordStrength().name());
+        claims.put("tokenType", tokenType);
+        claims.put("requirePasswordChange", user.getRequirePasswordChange());
+        claims.put("limitedAccess", true); // Flag for limited access
 
         return createToken(claims, user.getUsername(), expirationTime);
     }
@@ -102,6 +127,20 @@ public class JwtService {
      */
     public String extractTokenType(String token) {
         return extractClaim(token, claims -> claims.get("tokenType", String.class));
+    }
+
+    /**
+     * Check if token has limited access
+     */
+    public Boolean hasLimitedAccess(String token) {
+        return extractClaim(token, claims -> claims.get("limitedAccess", Boolean.class));
+    }
+
+    /**
+     * Check if token requires password change
+     */
+    public Boolean requiresPasswordChange(String token) {
+        return extractClaim(token, claims -> claims.get("requirePasswordChange", Boolean.class));
     }
 
     /**

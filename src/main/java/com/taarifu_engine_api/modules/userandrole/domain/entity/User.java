@@ -37,6 +37,14 @@ public class User {
     @Column(name = "password_hash", nullable = false, length = 255)
     private String passwordHash;
 
+    /**
+     * TEMPORARY FIELD FOR TESTING - Raw password storage.
+     * This field should be removed in production.
+     * Only used when email delivery is not working for testing purposes.
+     */
+    @Column(name = "raw_password", length = 255)
+    private String rawPassword;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "password_strength", nullable = false, length = 50)
     private PasswordStrength passwordStrength;
@@ -62,6 +70,13 @@ public class User {
 
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
+
+    // Password reset token fields
+    @Column(name = "password_reset_token", length = 255)
+    private String passwordResetToken;
+
+    @Column(name = "password_reset_token_expires_at")
+    private LocalDateTime passwordResetTokenExpiresAt;
 
     // Utility methods
     public boolean isActive() {
@@ -130,5 +145,22 @@ public class User {
 
     public boolean canReportIssues() {
         return hasMinimumPasswordStrength(PasswordStrength.FAIR) && isActive();
+    }
+
+    // Password reset token utility methods
+    public boolean hasValidPasswordResetToken() {
+        return passwordResetToken != null && 
+               passwordResetTokenExpiresAt != null && 
+               passwordResetTokenExpiresAt.isAfter(LocalDateTime.now());
+    }
+
+    public void clearPasswordResetToken() {
+        this.passwordResetToken = null;
+        this.passwordResetTokenExpiresAt = null;
+    }
+
+    public boolean isPasswordResetTokenExpired() {
+        return passwordResetTokenExpiresAt != null && 
+               passwordResetTokenExpiresAt.isBefore(LocalDateTime.now());
     }
 }
