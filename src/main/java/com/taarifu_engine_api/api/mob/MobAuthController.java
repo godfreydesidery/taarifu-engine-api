@@ -4,6 +4,7 @@ import com.taarifu_engine_api.modules.auth.domain.dto.AuthRequestDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthResponseDto;
 import com.taarifu_engine_api.modules.auth.service.AuthService;
 import com.taarifu_engine_api.modules.common.exception.ApiException;
+import com.taarifu_engine_api.modules.common.domain.util.ResponseWrapper;
 import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,12 +26,19 @@ public class MobAuthController {
      * Accepts username/email and password for authentication
      */
     @PostMapping("/login")
-    public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthRequestDto request) {
+    public ResponseEntity<ResponseWrapper<AuthResponseDto>> login(@Valid @RequestBody AuthRequestDto request) {
         log.info("Mobile login attempt for: {}", request.getUsernameOrEmail());
         
         try {
             // Authenticate user (citizens are USER type)
-            AuthResponseDto response = authService.authenticateUser(request, UserType.USER);
+            AuthResponseDto authResponse = authService.authenticateUser(request, UserType.USER);
+            
+            ResponseWrapper<AuthResponseDto> response = new ResponseWrapper<>(
+                    true,
+                    HttpStatus.OK.value(),
+                    "Login successful",
+                    authResponse
+            );
             
             log.info("Mobile login successful for: {}", request.getUsernameOrEmail());
             return ResponseEntity.ok(response);
@@ -56,7 +64,7 @@ public class MobAuthController {
      * Invalidates the current session/token
      */
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(@RequestHeader("Authorization") String authorizationHeader) {
+    public ResponseEntity<ResponseWrapper<String>> logout(@RequestHeader("Authorization") String authorizationHeader) {
         log.info("Mobile logout request");
         
         try {
@@ -64,8 +72,15 @@ public class MobAuthController {
             String token = extractTokenFromHeader(authorizationHeader);
             authService.logout(token);
             
+            ResponseWrapper<String> response = new ResponseWrapper<>(
+                    true,
+                    HttpStatus.OK.value(),
+                    "Logout successful",
+                    "Logout successful"
+            );
+            
             log.info("Mobile logout successful");
-            return ResponseEntity.ok().body("Logout successful");
+            return ResponseEntity.ok(response);
             
         } catch (Exception e) {
             log.error("Mobile logout failed", e);
@@ -78,11 +93,18 @@ public class MobAuthController {
      * Generates new access token using refresh token
      */
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponseDto> refreshToken(@RequestBody RefreshTokenRequest request) {
+    public ResponseEntity<ResponseWrapper<AuthResponseDto>> refreshToken(@RequestBody RefreshTokenRequest request) {
         log.info("Mobile token refresh request");
         
         try {
-            AuthResponseDto response = authService.refreshToken(request.getRefreshToken());
+            AuthResponseDto authResponse = authService.refreshToken(request.getRefreshToken());
+            
+            ResponseWrapper<AuthResponseDto> response = new ResponseWrapper<>(
+                    true,
+                    HttpStatus.OK.value(),
+                    "Token refresh successful",
+                    authResponse
+            );
             
             log.info("Mobile token refresh successful");
             return ResponseEntity.ok(response);
