@@ -87,12 +87,8 @@ public class User {
         return userType == UserType.ADMIN;
     }
 
-    public boolean isCitizen() {
-        return userType == UserType.CITIZEN;
-    }
-
-    public boolean isOrganization() {
-        return userType == UserType.ORGANIZATION;
+    public boolean isUser() {
+        return userType == UserType.USER;
     }
 
     /**

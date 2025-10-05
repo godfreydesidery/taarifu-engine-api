@@ -2,8 +2,7 @@ package com.taarifu_engine_api.modules.userandrole.domain.enums;
 
 public enum UserType {
     ADMIN("admin", "Administrator", "Platform administrators with full system access", "#DC2626"),
-    CITIZEN("citizen", "Citizen", "Individual citizens who can engage with leaders and report issues", "#059669"),
-    ORGANIZATION("organization", "Civic Organization", "Non-profit organizations and community groups", "#7C3AED");
+    USER("user", "User", "Regular system users", "#059669");
 
     private final String name;
     private final String displayName;
