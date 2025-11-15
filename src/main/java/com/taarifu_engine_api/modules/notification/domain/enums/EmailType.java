@@ -26,7 +26,10 @@ public enum EmailType {
     
     // General
     WELCOME("welcome", "Welcome", "Welcome email for new users"),
-    NOTIFICATION("notification", "Notification", "General notification email");
+    NOTIFICATION("notification", "Notification", "General notification email"),
+    
+    // Email Verification
+    EMAIL_VERIFICATION("email_verification", "Email Verification", "Email verification request");
 
     private final String code;
     private final String displayName;

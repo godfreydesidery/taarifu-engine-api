@@ -93,4 +93,24 @@ public class AuthResponseDto {
      * Contains all designations associated with the user.
      */
     private List<String> designations;
+
+    /**
+     * Whether the user's email is verified.
+     */
+    private Boolean emailVerified;
+
+    /**
+     * Whether the user's account is locked.
+     */
+    private Boolean accountLocked;
+
+    /**
+     * Timestamp when the account lockout expires.
+     */
+    private LocalDateTime accountLockedUntil;
+
+    /**
+     * Timestamp when the password expires.
+     */
+    private LocalDateTime passwordExpiresAt;
 }

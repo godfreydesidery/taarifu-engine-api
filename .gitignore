@@ -88,12 +88,15 @@ Desktop.ini
 *.tmp
 
 # Application specific
-application.yml
+# application.yml - Should be committed (contains only placeholders, no secrets)
 application-local.yml
 application-dev.yml
 application-prod.yml
 *.env
 .env
+.env.local
+.env.*
+!.env.example
 
 # Database
 *.db

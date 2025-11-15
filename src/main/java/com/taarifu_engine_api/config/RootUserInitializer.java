@@ -7,6 +7,7 @@ import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
@@ -19,10 +20,16 @@ public class RootUserInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
 
-    // Strong password: RootAdmin@2024!Secure
-    private static final String ROOT_PASSWORD = "RootAdmin@2024!Secure";
-    private static final String ROOT_EMAIL = "root@email.com";
-    private static final String ROOT_USERNAME = "rootadmin";
+    // Root admin credentials from environment variables
+    // Defaults provided for local development only
+    @Value("${ROOT_ADMIN_USERNAME:rootadmin}")
+    private String rootUsername;
+
+    @Value("${ROOT_ADMIN_EMAIL:root@email.com}")
+    private String rootEmail;
+
+    @Value("${ROOT_ADMIN_PASSWORD:RootAdmin@2024!Secure}")
+    private String rootPassword;
 
     @Override
     public void run(String... args) throws Exception {
@@ -42,9 +49,9 @@ public class RootUserInitializer implements CommandLineRunner {
                 userRepository.save(rootUser);
                 
                 log.info("Root admin user created successfully!");
-                log.info("Username: {}", ROOT_USERNAME);
-                log.info("Email: {}", ROOT_EMAIL);
-                log.info("Password: {}", ROOT_PASSWORD);
+                log.info("Username: {}", rootUsername);
+                log.info("Email: {}", rootEmail);
+                log.info("Password: {}", rootPassword);
                 log.warn("IMPORTANT: Please change the root password after first login!");
                 
             } else {
@@ -60,15 +67,15 @@ public class RootUserInitializer implements CommandLineRunner {
         User user = new User();
         
         // Set basic properties
-        user.setUsername(ROOT_USERNAME);
-        user.setEmail(ROOT_EMAIL);
+        user.setUsername(rootUsername);
+        user.setEmail(rootEmail);
         user.setUserType(UserType.ADMIN);
         user.setStatus(UserStatus.ACTIVE);
         user.setPasswordStrength(PasswordStrength.STRONG);
         user.setRequirePasswordChange(false);
         
         // Hash the password
-        String hashedPassword = passwordEncoder.encode(ROOT_PASSWORD);
+        String hashedPassword = passwordEncoder.encode(rootPassword);
         user.setPasswordHash(hashedPassword);
         
         // Ensure ULID is generated

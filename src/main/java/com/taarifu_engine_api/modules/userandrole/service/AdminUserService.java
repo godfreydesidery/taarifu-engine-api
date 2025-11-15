@@ -7,6 +7,7 @@ import com.taarifu_engine_api.modules.userandrole.domain.dto.CreateAdminUserDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.PasswordValidationDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.ResetPasswordDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.UpdateAdminUserDto;
+import com.taarifu_engine_api.modules.userandrole.domain.enums.UserStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -88,6 +89,26 @@ public interface AdminUserService {
      * @return a page of admin user responses
      */
     Page<AdminUserResponseDto> getAllAdminUsers(Pageable pageable);
+
+    /**
+     * Retrieves admin users by status with pagination.
+     *
+     * @param status the status to filter by (ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION)
+     * @param pageable pagination parameters
+     * @return a page of admin user responses
+     */
+    Page<AdminUserResponseDto> getAdminUsersByStatus(UserStatus status, Pageable pageable);
+
+    /**
+     * Searches admin users by query string (username, email, or phone number).
+     * Case-insensitive partial matching with OR logic.
+     *
+     * @param query the search query string
+     * @param pageable pagination parameters
+     * @return a page of admin user responses matching the search criteria
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if query is empty or null
+     */
+    Page<AdminUserResponseDto> searchAdminUsers(String query, Pageable pageable);
 
     /**
      * Deactivates an admin user (soft delete).
@@ -212,6 +233,16 @@ public interface AdminUserService {
     Page<AdminUserSummaryDto> getAdminUserSummaries(Pageable pageable);
 
     /**
+     * Retrieves admin user summaries by status with pagination.
+     * Optimized for frontend lists and tables.
+     *
+     * @param status the status to filter by (ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION)
+     * @param pageable pagination parameters
+     * @return paginated list of admin user summaries
+     */
+    Page<AdminUserSummaryDto> getAdminUserSummariesByStatus(UserStatus status, Pageable pageable);
+
+    /**
      * Gets a single admin user summary by UID.
      * Optimized for frontend quick views and dropdowns.
      *
@@ -230,4 +261,51 @@ public interface AdminUserService {
      * @return password validation feedback
      */
     PasswordValidationDto validatePassword(String password, boolean isAdminPassword);
+
+    /**
+     * Soft deletes an admin user by UID.
+     *
+     * @param uid the UID of the admin user to delete
+     * @param deletedByUid the UID of the user performing the deletion
+     * @return the deleted admin user response
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if user not found
+     */
+    AdminUserResponseDto softDeleteUser(String uid, String deletedByUid);
+
+    /**
+     * Restores a soft-deleted admin user by UID.
+     *
+     * @param uid the UID of the admin user to restore
+     * @return the restored admin user response
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if user not found
+     */
+    AdminUserResponseDto restoreUser(String uid);
+
+    /**
+     * Locks an admin user account by UID.
+     *
+     * @param uid the UID of the admin user
+     * @param lockoutMinutes the number of minutes to lock the account (default 30)
+     * @return the updated admin user response
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if user not found
+     */
+    AdminUserResponseDto lockUserAccount(String uid, Integer lockoutMinutes);
+
+    /**
+     * Unlocks an admin user account by UID.
+     *
+     * @param uid the UID of the admin user
+     * @return the updated admin user response
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if user not found
+     */
+    AdminUserResponseDto unlockUserAccount(String uid);
+
+    /**
+     * Resends email verification email to an admin user by UID.
+     *
+     * @param uid the UID of the admin user
+     * @return response indicating success
+     * @throws com.taarifu_engine_api.modules.common.exception.ApiException if user not found
+     */
+    com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto resendVerificationEmail(String uid);
 }

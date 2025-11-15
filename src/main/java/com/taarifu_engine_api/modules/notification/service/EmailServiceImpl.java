@@ -8,6 +8,7 @@ import com.taarifu_engine_api.modules.notification.email.EmailEvent;
 import com.taarifu_engine_api.modules.notification.email.EmailTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -35,6 +36,9 @@ public class EmailServiceImpl implements EmailService {
     private final JavaMailSender mailSender;
     private final ApplicationEventPublisher eventPublisher;
     private final EmailTemplateService emailTemplateService;
+    
+    @Value("${spring.mail.from}")
+    private String fromAddress;
     
     // In-memory storage for email status tracking (in production, use a database)
     private final Map<String, EmailResponseDto> emailStatusMap = new ConcurrentHashMap<>();
@@ -227,6 +231,7 @@ public class EmailServiceImpl implements EmailService {
         MimeMessage mimeMessage = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true, "UTF-8");
         
+        helper.setFrom(fromAddress);
         helper.setTo(emailRequest.getTo());
         helper.setSubject(emailRequest.getSubject());
         helper.setText(emailRequest.getBody(), true); // true for HTML
@@ -259,6 +264,7 @@ public class EmailServiceImpl implements EmailService {
      */
     private void sendTextEmail(EmailRequestDto emailRequest) {
         SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(fromAddress);
         message.setTo(emailRequest.getTo());
         message.setSubject(emailRequest.getSubject());
         message.setText(emailRequest.getBody());

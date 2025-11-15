@@ -36,6 +36,10 @@ public class AdminUserResponseDto {
      */
     private String email;
 
+    /**
+     * Phone number of the admin user (if provided).
+     */
+    private String phoneNumber;
 
     /**
      * Current status of the admin user account.
@@ -66,5 +70,60 @@ public class AdminUserResponseDto {
      * Whether the admin user account is currently active.
      */
     private Boolean isActive;
+
+    /**
+     * Whether the user's email is verified.
+     */
+    private Boolean emailVerified;
+
+    /**
+     * Timestamp when email was verified.
+     */
+    private LocalDateTime emailVerifiedAt;
+
+    /**
+     * Number of failed login attempts.
+     */
+    private Integer failedLoginAttempts;
+
+    /**
+     * Timestamp when the account lockout expires.
+     */
+    private LocalDateTime accountLockedUntil;
+
+    /**
+     * Timestamp when password was last changed.
+     */
+    private LocalDateTime passwordChangedAt;
+
+    /**
+     * Timestamp when the password expires.
+     */
+    private LocalDateTime passwordExpiresAt;
+
+    /**
+     * Whether the user is soft-deleted.
+     */
+    private Boolean deleted;
+
+    /**
+     * Timestamp when the user was soft-deleted.
+     */
+    private LocalDateTime deletedAt;
+
+    /**
+     * UID of the user who created this record.
+     */
+    private String createdBy;
+
+    /**
+     * UID of the user who last updated this record.
+     */
+    private String updatedBy;
+
+    /**
+     * Version for optimistic locking.
+     */
+    private Long version;
 
 }

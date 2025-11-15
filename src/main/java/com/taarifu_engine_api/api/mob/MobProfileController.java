@@ -15,6 +15,8 @@ import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
 import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import com.taarifu_engine_api.modules.notification.service.EmailService;
 import com.taarifu_engine_api.modules.notification.domain.enums.EmailType;
+import com.taarifu_engine_api.modules.notification.service.SmsService;
+import com.taarifu_engine_api.modules.notification.domain.enums.SmsType;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,7 @@ public class MobProfileController {
     private final ConstituencyService constituencyService;
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final SmsService smsService;
     private final Random random = new Random();
     
     /**
@@ -86,6 +89,17 @@ public class MobProfileController {
             } catch (Exception e) {
                 log.error("Failed to send welcome email to: {}", request.getEmail(), e);
                 // Don't fail registration if email fails - user can still login
+            }
+            
+            // Send welcome SMS with temporary password if phone number is provided
+            if (request.getPhoneNumber() != null && !request.getPhoneNumber().trim().isEmpty()) {
+                try {
+                    sendWelcomeSms(request.getPhoneNumber(), request.getName(), username, temporaryPassword);
+                    log.info("Welcome SMS sent successfully to: {}", request.getPhoneNumber());
+                } catch (Exception e) {
+                    log.error("Failed to send welcome SMS to: {}", request.getPhoneNumber(), e);
+                    // Don't fail registration if SMS fails - user can still login
+                }
             }
             
             // Prepare response
@@ -218,6 +232,24 @@ public class MobProfileController {
             log.info("Welcome email queued for sending to: {}", email);
         } catch (Exception e) {
             log.error("Failed to queue welcome email for: {}", email, e);
+            throw e;
+        }
+    }
+
+    /**
+     * Send welcome SMS with temporary password to new user
+     */
+    private void sendWelcomeSms(String phoneNumber, String name, String username, String temporaryPassword) {
+        String message = String.format(
+            "Welcome to Taarifu, %s! Your username is: %s. Temporary password: %s. Please change it after first login.",
+            name, username, temporaryPassword
+        );
+        
+        try {
+            smsService.sendSimpleSmsAsync(phoneNumber, message, SmsType.WELCOME);
+            log.info("Welcome SMS queued for sending to: {}", phoneNumber);
+        } catch (Exception e) {
+            log.error("Failed to queue welcome SMS for: {}", phoneNumber, e);
             throw e;
         }
     }

@@ -101,4 +101,34 @@ public interface AuthService {
      * @return true if token is valid, false otherwise
      */
     boolean validatePasswordResetToken(String token);
+
+    /**
+     * Verifies user email using verification token.
+     *
+     * @param token the email verification token
+     * @return true if verification successful, false otherwise
+     */
+    boolean verifyEmail(String token);
+
+    /**
+     * Resends email verification email to user.
+     *
+     * @param email the user's email address
+     * @return response indicating success
+     */
+    ForgotPasswordResponseDto resendEmailVerification(String email);
+
+    /**
+     * Handles failed login attempt by incrementing failed attempts and locking account if threshold reached.
+     *
+     * @param usernameOrEmail username or email of the user
+     */
+    void handleFailedLogin(String usernameOrEmail);
+
+    /**
+     * Resets failed login attempts for a user (typically after successful login).
+     *
+     * @param user the user to reset failed attempts for
+     */
+    void resetFailedLoginAttempts(User user);
 }

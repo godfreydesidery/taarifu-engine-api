@@ -66,8 +66,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // If user is not authenticated and username is valid
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 
-                // Find user in database
-                User user = userRepository.findByUsername(username)
+                // Find user in database (excluding soft-deleted)
+                User user = userRepository.findByUsernameExcludingDeleted(username)
                         .orElse(null);
 
                 if (user != null && jwtService.validateToken(jwt, username)) {
@@ -76,13 +76,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // Check for limited access (requirePasswordChange = true)
                     Boolean hasLimitedAccess = jwtService.hasLimitedAccess(jwt);
                     if (hasLimitedAccess != null && hasLimitedAccess) {
-                        // Only allow password change endpoints
+                        // Only allow password change and password validation endpoints
                         String requestURI = request.getRequestURI();
-                        if (!requestURI.contains("change-password")) {
-                            log.warn("Access denied to {} for user with limited access token - only password change allowed", requestURI);
+                        boolean isPasswordChangeEndpoint = requestURI.contains("change-password");
+                        boolean isPasswordValidationEndpoint = requestURI.contains("validate-password");
+                        
+                        if (!isPasswordChangeEndpoint && !isPasswordValidationEndpoint) {
+                            log.warn("Access denied to {} for user with limited access token - only password change and validation allowed", requestURI);
                             response.setStatus(403);
                             response.setContentType("application/json");
-                            response.getWriter().write("{\"status\":false,\"statusCode\":403,\"message\":\"You must change your password first. Only password change is allowed.\",\"data\":null}");
+                            response.getWriter().write("{\"status\":false,\"statusCode\":403,\"message\":\"You must change your password first. Only password change and validation are allowed.\",\"data\":null}");
                             return;
                         }
                     }

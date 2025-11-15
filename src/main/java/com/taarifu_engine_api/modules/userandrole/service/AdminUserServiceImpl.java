@@ -5,6 +5,9 @@ import com.taarifu_engine_api.modules.common.domain.util.PasswordStrengthCalcula
 import com.taarifu_engine_api.modules.common.exception.ApiException;
 import com.taarifu_engine_api.modules.notification.domain.enums.EmailType;
 import com.taarifu_engine_api.modules.notification.service.EmailService;
+import com.taarifu_engine_api.modules.notification.service.SmsService;
+import com.taarifu_engine_api.modules.notification.domain.enums.SmsType;
+import com.taarifu_engine_api.modules.notification.util.PhoneNumberUtil;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.AdminUserResponseDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.AdminUserSummaryDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.ChangePasswordDto;
@@ -25,6 +28,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 import java.util.Map;
@@ -43,6 +50,11 @@ public class AdminUserServiceImpl implements AdminUserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final SmsService smsService;
+    private final com.taarifu_engine_api.modules.auth.service.AuthService authService;
+
+    @Value("${ROOT_ADMIN_USERNAME:rootadmin}")
+    private String rootAdminUsername;
 
     @Override
     public AdminUserResponseDto createAdminUser(CreateAdminUserDto createAdminUserDto) {
@@ -71,19 +83,43 @@ public class AdminUserServiceImpl implements AdminUserService {
         adminUser.setStatus(UserStatus.ACTIVE); // Admin users are active by default
         adminUser.setRequirePasswordChange(createAdminUserDto.getRequirePasswordChange());
 
+        // Validate and format phone number if provided
+        if (createAdminUserDto.getPhoneNumber() != null && 
+            !createAdminUserDto.getPhoneNumber().trim().isEmpty()) {
+            try {
+                String formattedPhone = PhoneNumberUtil.formatToInternational(
+                    createAdminUserDto.getPhoneNumber()
+                );
+                adminUser.setPhoneNumber(formattedPhone);
+            } catch (ApiException e) {
+                log.error("Invalid phone number format: {}", createAdminUserDto.getPhoneNumber(), e);
+                throw new ApiException("Invalid phone number format: " + e.getMessage(), 
+                                     HttpStatus.BAD_REQUEST);
+            }
+        }
+
         // Hash password and set strength
         String hashedPassword = passwordEncoder.encode(password);
         adminUser.setPasswordHash(hashedPassword);
         adminUser.setPasswordStrength(PasswordStrengthCalculator.calculatePasswordStrength(password));
-        
-        // TEMPORARY: Store raw password for testing (remove in production)
-        adminUser.setRawPassword(password);
 
         // Ensure ULID is generated
         adminUser.ensureUid();
 
         // Save admin user
         User savedAdminUser = userRepository.save(adminUser);
+
+        // Send welcome SMS if phone number is provided
+        if (savedAdminUser.getPhoneNumber() != null && 
+            !savedAdminUser.getPhoneNumber().trim().isEmpty()) {
+            try {
+                sendAdminUserCreatedSms(savedAdminUser, password);
+            } catch (Exception e) {
+                log.error("Failed to send welcome SMS to admin user: {}", 
+                         savedAdminUser.getPhoneNumber(), e);
+                // Don't throw - SMS failure shouldn't break admin creation
+            }
+        }
 
         // Send admin user created notification email
         sendAdminUserCreatedEmail(savedAdminUser, password, passwordGenerated);
@@ -109,6 +145,9 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     private AdminUserResponseDto updateAdminUserInternal(User adminUser, UpdateAdminUserDto updateAdminUserDto) {
+        // Prevent rootadmin modification
+        validateNotRootAdmin(adminUser, "modified");
+
         boolean updated = false;
 
         // Update username if provided
@@ -133,6 +172,29 @@ public class AdminUserServiceImpl implements AdminUserService {
             updated = true;
         }
 
+        // Update phone number if provided
+        if (updateAdminUserDto.getPhoneNumber() != null) {
+            if (updateAdminUserDto.getPhoneNumber().trim().isEmpty()) {
+                // Clear phone number if empty string provided
+                adminUser.setPhoneNumber(null);
+                updated = true;
+            } else {
+                try {
+                    String formattedPhone = PhoneNumberUtil.formatToInternational(
+                        updateAdminUserDto.getPhoneNumber()
+                    );
+                    if (!formattedPhone.equals(adminUser.getPhoneNumber())) {
+                        adminUser.setPhoneNumber(formattedPhone);
+                        updated = true;
+                    }
+                } catch (ApiException e) {
+                    log.error("Invalid phone number format: {}", 
+                             updateAdminUserDto.getPhoneNumber(), e);
+                    throw new ApiException("Invalid phone number format: " + e.getMessage(), 
+                                         HttpStatus.BAD_REQUEST);
+                }
+            }
+        }
 
         // Update require password change if provided
         if (updateAdminUserDto.getRequirePasswordChange() != null) {
@@ -141,13 +203,21 @@ public class AdminUserServiceImpl implements AdminUserService {
         }
 
         if (updated) {
-            User savedAdminUser = userRepository.save(adminUser);
-            
-            // Send admin user updated notification email
-            sendAdminUserUpdatedEmail(savedAdminUser);
-            
-            log.info("Admin user updated successfully with ID: {}", savedAdminUser.getId());
-            return convertToResponseDto(savedAdminUser);
+            try {
+                User savedAdminUser = userRepository.save(adminUser);
+                
+                // Send admin user updated notification email
+                sendAdminUserUpdatedEmail(savedAdminUser);
+                
+                log.info("Admin user updated successfully with ID: {}", savedAdminUser.getId());
+                return convertToResponseDto(savedAdminUser);
+            } catch (ObjectOptimisticLockingFailureException e) {
+                log.warn("Concurrent update detected for admin user with ID: {}", adminUser.getId());
+                throw new ApiException(
+                    "User was modified by another process. Please refresh and try again.",
+                    HttpStatus.CONFLICT
+                );
+            }
         } else {
             log.info("No changes detected for admin user with ID: {}", adminUser.getId());
             return convertToResponseDto(adminUser);
@@ -190,7 +260,32 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Transactional(readOnly = true)
     public Page<AdminUserResponseDto> getAllAdminUsers(Pageable pageable) {
         log.info("Retrieving all admin users with pagination");
-        Page<User> adminUsers = userRepository.findByUserType(UserType.ADMIN, pageable);
+        Page<User> adminUsers = userRepository.findByUserTypeExcludingDeleted(UserType.ADMIN, pageable);
+        return adminUsers.map(this::convertToResponseDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AdminUserResponseDto> getAdminUsersByStatus(UserStatus status, Pageable pageable) {
+        log.info("Retrieving admin users with status: {} and pagination", status);
+        Page<User> adminUsers = userRepository.findByUserTypeAndStatusExcludingDeleted(
+            UserType.ADMIN, status, pageable);
+        return adminUsers.map(this::convertToResponseDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AdminUserResponseDto> searchAdminUsers(String query, Pageable pageable) {
+        log.info("Searching admin users with query: {}", query);
+        
+        // Validate query is not empty or whitespace
+        if (query == null || query.trim().isEmpty()) {
+            throw new ApiException("Search query parameter 'q' is required", HttpStatus.BAD_REQUEST);
+        }
+        
+        String searchTerm = query.trim();
+        Page<User> adminUsers = userRepository.searchAdminUsersByQuery(UserType.ADMIN, searchTerm, pageable);
+        
         return adminUsers.map(this::convertToResponseDto);
     }
 
@@ -198,6 +293,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto deactivateAdminUser(Long userId) {
         log.info("Deactivating admin user with ID: {}", userId);
         User adminUser = findAdminUserById(userId);
+        
+        // Prevent rootadmin deactivation
+        validateNotRootAdmin(adminUser, "deactivated");
+        
+        // Prevent admin from deactivating their own account
+        validateNotSelfOperation(adminUser, "deactivate");
+        
         adminUser.setStatus(UserStatus.INACTIVE);
         User savedAdminUser = userRepository.save(adminUser);
         log.info("Admin user deactivated successfully with ID: {}", savedAdminUser.getId());
@@ -208,6 +310,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto deactivateAdminUserByUid(String uid) {
         log.info("Deactivating admin user with UID: {}", uid);
         User adminUser = findAdminUserByUid(uid);
+        
+        // Prevent rootadmin deactivation
+        validateNotRootAdmin(adminUser, "deactivated");
+        
+        // Prevent admin from deactivating their own account
+        validateNotSelfOperation(adminUser, "deactivate");
+        
         adminUser.setStatus(UserStatus.INACTIVE);
         User savedAdminUser = userRepository.save(adminUser);
         
@@ -222,6 +331,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto activateAdminUser(Long userId) {
         log.info("Activating admin user with ID: {}", userId);
         User adminUser = findAdminUserById(userId);
+        
+        // Prevent rootadmin modification (though activation shouldn't be needed for rootadmin)
+        validateNotRootAdmin(adminUser, "modified");
+        
+        // Prevent admin from activating their own account
+        validateNotSelfOperation(adminUser, "activate");
+        
         adminUser.setStatus(UserStatus.ACTIVE);
         User savedAdminUser = userRepository.save(adminUser);
         log.info("Admin user activated successfully with ID: {}", savedAdminUser.getId());
@@ -232,6 +348,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto activateAdminUserByUid(String uid) {
         log.info("Activating admin user with UID: {}", uid);
         User adminUser = findAdminUserByUid(uid);
+        
+        // Prevent rootadmin modification (though activation shouldn't be needed for rootadmin)
+        validateNotRootAdmin(adminUser, "modified");
+        
+        // Prevent admin from activating their own account
+        validateNotSelfOperation(adminUser, "activate");
+        
         adminUser.setStatus(UserStatus.ACTIVE);
         User savedAdminUser = userRepository.save(adminUser);
         
@@ -246,6 +369,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto suspendAdminUser(Long userId) {
         log.info("Suspending admin user with ID: {}", userId);
         User adminUser = findAdminUserById(userId);
+        
+        // Prevent rootadmin suspension
+        validateNotRootAdmin(adminUser, "suspended");
+        
+        // Prevent admin from suspending their own account
+        validateNotSelfOperation(adminUser, "suspend");
+        
         adminUser.setStatus(UserStatus.SUSPENDED);
         User savedAdminUser = userRepository.save(adminUser);
         log.info("Admin user suspended successfully with ID: {}", savedAdminUser.getId());
@@ -256,6 +386,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     public AdminUserResponseDto suspendAdminUserByUid(String uid) {
         log.info("Suspending admin user with UID: {}", uid);
         User adminUser = findAdminUserByUid(uid);
+        
+        // Prevent rootadmin suspension
+        validateNotRootAdmin(adminUser, "suspended");
+        
+        // Prevent admin from suspending their own account
+        validateNotSelfOperation(adminUser, "suspend");
+        
         adminUser.setStatus(UserStatus.SUSPENDED);
         User savedAdminUser = userRepository.save(adminUser);
         
@@ -269,7 +406,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     @Transactional(readOnly = true)
     public long getAdminUserCount() {
-        return userRepository.countByUserType(UserType.ADMIN);
+        return userRepository.countByUserTypeExcludingDeleted(UserType.ADMIN);
     }
 
     @Override
@@ -299,7 +436,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     private User findAdminUserByUid(String uid) {
-        Optional<User> userOpt = userRepository.findByUid(uid);
+        Optional<User> userOpt = userRepository.findByUidExcludingDeleted(uid);
         if (userOpt.isEmpty()) {
             throw new ApiException("Admin user not found with UID: " + uid, HttpStatus.NOT_FOUND);
         }
@@ -311,7 +448,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     private User findAdminUserByUsername(String username) {
-        Optional<User> userOpt = userRepository.findByUsername(username);
+        Optional<User> userOpt = userRepository.findByUsernameExcludingDeleted(username);
         if (userOpt.isEmpty()) {
             throw new ApiException("Admin user not found with username: " + username, HttpStatus.NOT_FOUND);
         }
@@ -323,7 +460,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     private User findAdminUserByEmail(String email) {
-        Optional<User> userOpt = userRepository.findByEmail(email);
+        Optional<User> userOpt = userRepository.findByEmailExcludingDeleted(email);
         if (userOpt.isEmpty()) {
             throw new ApiException("Admin user not found with email: " + email, HttpStatus.NOT_FOUND);
         }
@@ -340,12 +477,27 @@ public class AdminUserServiceImpl implements AdminUserService {
         responseDto.setUid(user.getUid());
         responseDto.setUsername(user.getUsername());
         responseDto.setEmail(user.getEmail());
+        responseDto.setPhoneNumber(user.getPhoneNumber());
         responseDto.setStatus(user.getStatus());
         responseDto.setRequirePasswordChange(user.getRequirePasswordChange());
         responseDto.setCreatedAt(user.getCreatedAt());
         responseDto.setUpdatedAt(user.getUpdatedAt());
         responseDto.setLastLoginAt(user.getLastLoginAt());
         responseDto.setIsActive(user.isActive());
+        
+        // Set new fields
+        responseDto.setEmailVerified(user.isEmailVerified());
+        responseDto.setEmailVerifiedAt(user.getEmailVerifiedAt());
+        responseDto.setFailedLoginAttempts(user.getFailedLoginAttempts());
+        responseDto.setAccountLockedUntil(user.getAccountLockedUntil());
+        responseDto.setPasswordChangedAt(user.getPasswordChangedAt());
+        responseDto.setPasswordExpiresAt(user.getPasswordExpiresAt());
+        responseDto.setDeleted(user.isDeleted());
+        responseDto.setDeletedAt(user.getDeletedAt());
+        responseDto.setCreatedBy(user.getCreatedBy());
+        responseDto.setUpdatedBy(user.getUpdatedBy());
+        responseDto.setVersion(user.getVersion());
+        
         return responseDto;
     }
 
@@ -379,6 +531,22 @@ public class AdminUserServiceImpl implements AdminUserService {
         } catch (Exception e) {
             log.error("Failed to send admin user created email to: {}", adminUser.getEmail(), e);
         }
+    }
+
+    /**
+     * Sends admin user created notification SMS.
+     */
+    private void sendAdminUserCreatedSms(User adminUser, String password) {
+        String message = String.format(
+            "Welcome to Taarifu Admin Portal! Username: %s. Password: %s. Please change your password after first login.",
+            adminUser.getUsername(), password
+        );
+        smsService.sendSimpleSmsAsync(
+            adminUser.getPhoneNumber(), 
+            message, 
+            SmsType.ADMIN_USER_CREATED
+        );
+        log.info("Admin user created SMS sent to: {}", adminUser.getPhoneNumber());
     }
 
     /**
@@ -507,8 +675,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         adminUser.setPasswordStrength(PasswordStrengthCalculator.calculatePasswordStrength(changePasswordDto.getNewPassword()));
         adminUser.setRequirePasswordChange(false); // Password change completed
         
-        // TEMPORARY: Update raw password for testing (remove in production)
-        adminUser.setRawPassword(changePasswordDto.getNewPassword());
+        // Update password tracking fields
+        adminUser.setPasswordChangedAt(java.time.LocalDateTime.now());
+        adminUser.updatePasswordExpiry(); // Sets passwordExpiresAt based on passwordExpiryDays
 
         // Save updated admin user
         User updatedAdminUser = userRepository.save(adminUser);
@@ -528,6 +697,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         User adminUser = userRepository.findByUidAndUserType(uid, UserType.ADMIN)
             .orElseThrow(() -> new ApiException("Admin user not found with UID: " + uid, HttpStatus.NOT_FOUND));
 
+        // Prevent rootadmin password reset
+        validateNotRootAdmin(adminUser, "modified");
+
+        // Prevent admin from resetting their own password
+        validateNotSelfOperation(adminUser, "reset password for");
+
         // Validate new password strength for admin users
         if (!PasswordStrengthCalculator.meetsAdminPasswordRequirements(resetPasswordDto.getNewPassword())) {
             throw new ApiException(
@@ -543,8 +718,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         adminUser.setPasswordStrength(PasswordStrengthCalculator.calculatePasswordStrength(resetPasswordDto.getNewPassword()));
         adminUser.setRequirePasswordChange(resetPasswordDto.getRequirePasswordChange());
         
-        // TEMPORARY: Update raw password for testing (remove in production)
-        adminUser.setRawPassword(resetPasswordDto.getNewPassword());
+        // Update password tracking fields
+        adminUser.setPasswordChangedAt(java.time.LocalDateTime.now());
+        adminUser.updatePasswordExpiry(); // Sets passwordExpiresAt based on passwordExpiryDays
 
         // Save updated admin user
         User updatedAdminUser = userRepository.save(adminUser);
@@ -552,6 +728,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         // Send password reset notification email if requested
         if (resetPasswordDto.getSendEmailNotification()) {
             sendPasswordResetEmail(updatedAdminUser, resetPasswordDto.getNewPassword());
+        }
+
+        // Send password reset notification SMS if requested and user has phone number
+        if (resetPasswordDto.getSendSmsNotification() && 
+            StringUtils.hasText(updatedAdminUser.getPhoneNumber())) {
+            sendPasswordResetSms(updatedAdminUser, resetPasswordDto.getNewPassword());
         }
 
         log.info("Password reset successfully for admin user with UID: {}", uid);
@@ -566,6 +748,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         User adminUser = userRepository.findByUidAndUserType(uid, UserType.ADMIN)
             .orElseThrow(() -> new ApiException("Admin user not found with UID: " + uid, HttpStatus.NOT_FOUND));
 
+        // Prevent rootadmin password reset
+        validateNotRootAdmin(adminUser, "modified");
+
+        // Prevent admin from generating password for themselves
+        validateNotSelfOperation(adminUser, "generate password for");
+
         // Generate a secure password for admin user
         String newPassword = PasswordGenerator.generateTemporaryAdminPassword();
         log.info("Generated new secure password for admin user: {}", adminUser.getUsername());
@@ -576,8 +764,9 @@ public class AdminUserServiceImpl implements AdminUserService {
         adminUser.setPasswordStrength(PasswordStrengthCalculator.calculatePasswordStrength(newPassword));
         adminUser.setRequirePasswordChange(true); // Require password change on next login
         
-        // TEMPORARY: Update raw password for testing (remove in production)
-        adminUser.setRawPassword(newPassword);
+        // Update password tracking fields
+        adminUser.setPasswordChangedAt(java.time.LocalDateTime.now());
+        adminUser.updatePasswordExpiry(); // Sets passwordExpiresAt based on passwordExpiryDays
 
         // Save updated admin user
         User updatedAdminUser = userRepository.save(adminUser);
@@ -616,22 +805,73 @@ public class AdminUserServiceImpl implements AdminUserService {
      */
     private void sendPasswordResetEmail(User adminUser, String newPassword) {
         try {
-            emailService.sendTemplateEmailAsync(
+            String subject = "Password Reset - Taarifu Engine";
+            
+            String emailBody = String.format("""
+                Hello %s,
+                
+                Your admin account password has been reset by an administrator.
+                
+                Your New Password: %s
+                
+                SECURITY NOTICE:
+                - Please log in immediately and change this password
+                - Do not share this password with anyone
+                - Use a strong, unique password for your account
+                
+                %s
+                
+                If you have any questions or need assistance, please contact the system administrator.
+                
+                Best regards,
+                Taarifu Team
+                
+                This is an automated message. Please do not reply to this email.
+                """, 
+                adminUser.getUsername(),
+                newPassword,
+                adminUser.getRequirePasswordChange() 
+                    ? "Important: You will be required to change your password on your first login."
+                    : "You can now log in with this password."
+            );
+            
+            emailService.sendSimpleEmailAsync(
                 adminUser.getEmail(),
-                "Password Reset - Taarifu Engine",
-                "password_reset",
-                Map.of(
-                    "username", adminUser.getUsername(),
-                    "email", adminUser.getEmail(),
-                    "password", newPassword,
-                    "requirePasswordChange", adminUser.getRequirePasswordChange()
-                ),
+                subject,
+                emailBody,
                 EmailType.PASSWORD_RESET
             );
             
             log.info("Password reset email sent to: {}", adminUser.getEmail());
         } catch (Exception e) {
             log.error("Failed to send password reset email to: {}", adminUser.getEmail(), e);
+        }
+    }
+
+    /**
+     * Sends password reset notification SMS.
+     */
+    private void sendPasswordResetSms(User adminUser, String newPassword) {
+        try {
+            String message = String.format(
+                "Your Taarifu Admin Portal password has been reset. Username: %s. New Password: %s. %s",
+                adminUser.getUsername(),
+                newPassword,
+                adminUser.getRequirePasswordChange() 
+                    ? "Please change your password after first login." 
+                    : "You can now log in with this password."
+            );
+            
+            smsService.sendSimpleSmsAsync(
+                adminUser.getPhoneNumber(),
+                message,
+                SmsType.PASSWORD_RESET
+            );
+            
+            log.info("Password reset SMS sent to: {}", adminUser.getPhoneNumber());
+        } catch (Exception e) {
+            log.error("Failed to send password reset SMS to: {}", adminUser.getPhoneNumber(), e);
+            // Don't throw exception - SMS failure shouldn't break the flow
         }
     }
 
@@ -665,8 +905,17 @@ public class AdminUserServiceImpl implements AdminUserService {
     public Page<AdminUserSummaryDto> getAdminUserSummaries(Pageable pageable) {
         log.info("Getting admin user summaries with pagination: {}", pageable);
         
-        Page<User> adminUsers = userRepository.findByUserType(UserType.ADMIN, pageable);
+        Page<User> adminUsers = userRepository.findByUserTypeExcludingDeleted(UserType.ADMIN, pageable);
         
+        return adminUsers.map(this::convertToSummaryDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<AdminUserSummaryDto> getAdminUserSummariesByStatus(UserStatus status, Pageable pageable) {
+        log.info("Getting admin user summaries with status: {} and pagination: {}", status, pageable);
+        Page<User> adminUsers = userRepository.findByUserTypeAndStatusExcludingDeleted(
+            UserType.ADMIN, status, pageable);
         return adminUsers.map(this::convertToSummaryDto);
     }
 
@@ -722,5 +971,143 @@ public class AdminUserServiceImpl implements AdminUserService {
         summaryDto.setRequirePasswordChange(user.getRequirePasswordChange());
         summaryDto.setCreatedAt(user.getCreatedAt());
         return summaryDto;
+    }
+
+    @Override
+    public AdminUserResponseDto softDeleteUser(String uid, String deletedByUid) {
+        log.info("Soft deleting admin user with UID: {}", uid);
+        
+        User adminUser = findAdminUserByUid(uid);
+        
+        // Prevent rootadmin deletion
+        validateNotRootAdmin(adminUser, "deleted");
+        
+        // Check if already deleted
+        if (adminUser.isDeleted()) {
+            throw new ApiException("Admin user is already deleted", HttpStatus.BAD_REQUEST);
+        }
+        
+        adminUser.softDelete(deletedByUid);
+        User savedAdminUser = userRepository.save(adminUser);
+        
+        log.info("Admin user soft deleted successfully with UID: {}", uid);
+        return convertToResponseDto(savedAdminUser);
+    }
+
+    @Override
+    public AdminUserResponseDto restoreUser(String uid) {
+        log.info("Restoring admin user with UID: {}", uid);
+        
+        // Use findByUid to include soft-deleted users for restore
+        Optional<User> userOpt = userRepository.findByUid(uid);
+        if (userOpt.isEmpty()) {
+            throw new ApiException("Admin user not found with UID: " + uid, HttpStatus.NOT_FOUND);
+        }
+        
+        User user = userOpt.get();
+        if (user.getUserType() != UserType.ADMIN) {
+            throw new ApiException("User is not an admin user", HttpStatus.FORBIDDEN);
+        }
+        
+        if (!user.isDeleted()) {
+            throw new ApiException("Admin user is not deleted", HttpStatus.BAD_REQUEST);
+        }
+        
+        user.restore();
+        User savedAdminUser = userRepository.save(user);
+        
+        log.info("Admin user restored successfully with UID: {}", uid);
+        return convertToResponseDto(savedAdminUser);
+    }
+
+    @Override
+    public AdminUserResponseDto lockUserAccount(String uid, Integer lockoutMinutes) {
+        log.info("Locking admin user account with UID: {}", uid);
+        
+        User adminUser = findAdminUserByUid(uid);
+        
+        // Prevent rootadmin account lock
+        validateNotRootAdmin(adminUser, "locked");
+        
+        int minutes = (lockoutMinutes != null && lockoutMinutes > 0) ? lockoutMinutes : 30;
+        adminUser.lockAccount(minutes);
+        
+        User savedAdminUser = userRepository.save(adminUser);
+        
+        log.info("Admin user account locked for {} minutes with UID: {}", minutes, uid);
+        return convertToResponseDto(savedAdminUser);
+    }
+
+    @Override
+    public AdminUserResponseDto unlockUserAccount(String uid) {
+        log.info("Unlocking admin user account with UID: {}", uid);
+        
+        User adminUser = findAdminUserByUid(uid);
+        
+        adminUser.unlockAccount();
+        
+        User savedAdminUser = userRepository.save(adminUser);
+        
+        log.info("Admin user account unlocked with UID: {}", uid);
+        return convertToResponseDto(savedAdminUser);
+    }
+
+    @Override
+    public com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto resendVerificationEmail(String uid) {
+        log.info("Resending verification email for admin user with UID: {}", uid);
+        
+        User adminUser = findAdminUserByUid(uid);
+        
+        // Use AuthService to resend verification
+        return authService.resendEmailVerification(adminUser.getEmail());
+    }
+
+    /**
+     * Gets the current authenticated user from SecurityContext
+     */
+    private User getCurrentAuthenticatedUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new ApiException("No authenticated user found", HttpStatus.UNAUTHORIZED);
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof User user) {
+            return user;
+        } else {
+            throw new ApiException("Invalid user principal type", HttpStatus.UNAUTHORIZED);
+        }
+    }
+
+    /**
+     * Checks if a user is the root admin user
+     */
+    private boolean isRootAdmin(User user) {
+        return user != null && rootAdminUsername.equalsIgnoreCase(user.getUsername());
+    }
+
+    /**
+     * Validates that the target user is not rootadmin (immutable)
+     */
+    private void validateNotRootAdmin(User user, String operation) {
+        if (isRootAdmin(user)) {
+            throw new ApiException(
+                String.format("Root admin user cannot be %s. Root admin is immutable.", operation),
+                HttpStatus.FORBIDDEN
+            );
+        }
+    }
+
+    /**
+     * Validates that the current user is not trying to perform an operation on themselves
+     */
+    private void validateNotSelfOperation(User targetUser, String operation) {
+        User currentUser = getCurrentAuthenticatedUser();
+        if (currentUser.getUid().equals(targetUser.getUid())) {
+            throw new ApiException(
+                String.format("You cannot %s your own account", operation),
+                HttpStatus.FORBIDDEN
+            );
+        }
     }
 }

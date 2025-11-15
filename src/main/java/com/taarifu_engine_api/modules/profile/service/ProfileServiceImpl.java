@@ -15,6 +15,10 @@ import com.taarifu_engine_api.modules.userandrole.domain.entity.User;
 import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import com.taarifu_engine_api.modules.common.domain.enums.PasswordStrength;
+import com.taarifu_engine_api.modules.notification.service.EmailService;
+import com.taarifu_engine_api.modules.notification.domain.enums.EmailType;
+import com.taarifu_engine_api.modules.notification.service.SmsService;
+import com.taarifu_engine_api.modules.notification.domain.enums.SmsType;
 import de.huxhorn.sulky.ulid.ULID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +28,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Base64;
 
 /**
  * Service implementation for Profile operations
@@ -39,7 +45,11 @@ public class ProfileServiceImpl implements ProfileService {
     private final UserRepository userRepository;
     private final CitizenService citizenService;
     private final PasswordEncoder passwordEncoder;
+    private final EmailService emailService;
+    private final SmsService smsService;
     private final ULID ulid = new ULID();
+    
+    private static final int EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS = 24;
 
     @Override
     public ProfileResponseDto createProfile(CreateProfileRequestDto request, String username, String email, String password) {
@@ -71,7 +81,10 @@ public class ProfileServiceImpl implements ProfileService {
         }
         
         // Create user first
-        User user = createUserWithPasswordStrength(username, email, password, request.getProfileType());
+        User user = createUserWithPasswordStrength(username, email, password, request.getProfileType(), request.getPhoneNumber());
+        
+        // Validate that the created user is not an admin (defensive check)
+        validateUserIsNotAdmin(user);
         
         // Create profile
         Profile profile = new Profile();
@@ -143,6 +156,9 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     private ProfileResponseDto updateProfileFields(Profile profile, UpdateProfileRequestDto request) {
+        // Validate that the user is not an admin
+        validateUserIsNotAdmin(profile.getUser());
+        
         // Check if email is already taken by another profile
         if (request.getEmail() != null && !request.getEmail().equals(profile.getEmail()) && 
             profileRepository.existsByEmail(request.getEmail())) {
@@ -632,9 +648,25 @@ public class ProfileServiceImpl implements ProfileService {
     }
 
     /**
+     * Validates that a user is not an admin user.
+     * Admin users cannot have profiles as they are system operators, not civic participants.
+     * 
+     * @param user The user to validate
+     * @throws ApiException if user is an admin
+     */
+    private void validateUserIsNotAdmin(User user) {
+        if (user.getUserType() == UserType.ADMIN) {
+            throw new ApiException(
+                "Admin users cannot have profiles. Profiles are only for regular users who participate in civic engagement.", 
+                HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    /**
      * Creates a user with appropriate password strength based on profile type
      */
-    private User createUserWithPasswordStrength(String username, String email, String password, ProfileType profileType) {
+    private User createUserWithPasswordStrength(String username, String email, String password, ProfileType profileType, String phoneNumber) {
         log.info("Creating user with profile type: {}", profileType);
         
         // Check if username already exists
@@ -674,14 +706,37 @@ public class ProfileServiceImpl implements ProfileService {
         // Hash the password properly
         String hashedPassword = passwordEncoder.encode(password);
         user.setPasswordHash(hashedPassword);
-        user.setRawPassword(password); // TEMPORARY - for testing/display purposes only
         user.setPasswordStrength(actualPasswordStrength);
         user.setUserType(UserType.USER);
         user.setRequirePasswordChange(false);
         user.ensureUid();
         
+        // Generate email verification token
+        String verificationToken = generateSecureToken();
+        LocalDateTime expirationTime = LocalDateTime.now().plusHours(EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS);
+        user.setEmailVerificationToken(verificationToken);
+        user.setEmailVerificationTokenExpiresAt(expirationTime);
+        user.setEmailVerified(false);
+        
+        // Set password tracking
+        user.setPasswordChangedAt(LocalDateTime.now());
+        user.updatePasswordExpiry();
+        
         User savedUser = userRepository.save(user);
         log.info("User created successfully with ID: {} and password strength: {}", savedUser.getId(), actualPasswordStrength);
+        
+        // Send email verification email
+        sendEmailVerificationEmail(savedUser, verificationToken);
+        
+        // Send welcome SMS if phone number is provided
+        if (phoneNumber != null && !phoneNumber.trim().isEmpty()) {
+            try {
+                sendWelcomeSms(phoneNumber, savedUser.getUsername(), verificationToken);
+            } catch (Exception e) {
+                log.error("Failed to send welcome SMS to: {}", phoneNumber, e);
+                // Don't throw - SMS failure shouldn't break user creation
+            }
+        }
         
         return savedUser;
     }
@@ -715,6 +770,71 @@ public class ProfileServiceImpl implements ProfileService {
             return PasswordStrength.GOOD;
         } else {
             return PasswordStrength.STRONG;
+        }
+    }
+
+    /**
+     * Generate a secure random token for email verification
+     */
+    private String generateSecureToken() {
+        SecureRandom random = new SecureRandom();
+        byte[] bytes = new byte[32];
+        random.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /**
+     * Send email verification email to user
+     */
+    private void sendEmailVerificationEmail(User user, String verificationToken) {
+        try {
+            // Create verification link
+            String verificationLink = "http://localhost:3000/verify-email?token=" + verificationToken;
+
+            String htmlContent = String.format("""
+                <html>
+                <body>
+                    <h2>Email Verification</h2>
+                    <p>Hello %s,</p>
+                    <p>Thank you for registering. Please verify your email address by clicking the link below:</p>
+                    <p><a href="%s" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Verify Email</a></p>
+                    <p>This link will expire in %d hours.</p>
+                    <p>If you did not create an account, please ignore this email.</p>
+                    <br>
+                    <p>Best regards,<br>Taarifu Engine Team</p>
+                </body>
+                </html>
+                """, user.getUsername(), verificationLink, EMAIL_VERIFICATION_TOKEN_EXPIRY_HOURS);
+
+            emailService.sendSimpleEmailAsync(
+                user.getEmail(),
+                "Verify Your Email Address",
+                htmlContent,
+                EmailType.WELCOME
+            );
+
+            log.info("Email verification email sent to: {}", user.getEmail());
+        } catch (Exception e) {
+            log.error("Failed to send email verification email to: {}", user.getEmail(), e);
+            // Don't throw exception - email failure shouldn't break the flow
+        }
+    }
+
+    /**
+     * Send welcome SMS to user
+     */
+    private void sendWelcomeSms(String phoneNumber, String username, String verificationToken) {
+        try {
+            String message = String.format(
+                "Welcome to Taarifu! Your username is: %s. Please verify your email to activate your account. Verification code: %s",
+                username, verificationToken.substring(0, Math.min(6, verificationToken.length()))
+            );
+
+            smsService.sendSimpleSmsAsync(phoneNumber, message, SmsType.WELCOME);
+            log.info("Welcome SMS sent to: {}", phoneNumber);
+        } catch (Exception e) {
+            log.error("Failed to send welcome SMS to: {}", phoneNumber, e);
+            // Don't throw exception - SMS failure shouldn't break the flow
         }
     }
 }

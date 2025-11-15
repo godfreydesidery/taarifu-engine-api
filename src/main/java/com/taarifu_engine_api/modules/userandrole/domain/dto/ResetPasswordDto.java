@@ -35,4 +35,10 @@ public class ResetPasswordDto {
      * Defaults to true for security.
      */
     private Boolean sendEmailNotification = true;
+
+    /**
+     * Whether to send the new password via SMS to the user.
+     * Defaults to true for security. Only sent if user has a phone number.
+     */
+    private Boolean sendSmsNotification = true;
 }

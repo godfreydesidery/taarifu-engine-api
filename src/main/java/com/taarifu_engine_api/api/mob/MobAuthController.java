@@ -2,6 +2,9 @@ package com.taarifu_engine_api.api.mob;
 
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthRequestDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthResponseDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.EmailVerificationDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordRequestDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto;
 import com.taarifu_engine_api.modules.auth.service.AuthService;
 import com.taarifu_engine_api.modules.common.exception.ApiException;
 import com.taarifu_engine_api.modules.common.domain.util.ResponseWrapper;
@@ -137,6 +140,66 @@ public class MobAuthController {
         
         public void setRefreshToken(String refreshToken) {
             this.refreshToken = refreshToken;
+        }
+    }
+
+    /**
+     * Verifies user email using verification token.
+     *
+     * @param request the email verification request containing token
+     * @return response indicating success
+     */
+    @PostMapping("/verify-email")
+    public ResponseEntity<ResponseWrapper<Boolean>> verifyEmail(
+            @Valid @RequestBody EmailVerificationDto request) {
+        log.info("Mobile email verification request");
+        
+        try {
+            boolean verified = authService.verifyEmail(request.getToken());
+            
+            ResponseWrapper<Boolean> response = new ResponseWrapper<>(
+                    true,
+                    HttpStatus.OK.value(),
+                    verified ? "Email verified successfully" : "Email verification failed. Token is invalid or expired",
+                    verified
+            );
+            
+            log.info("Mobile email verification {} for token", verified ? "successful" : "failed");
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Mobile email verification failed", e);
+            throw new ApiException("Email verification failed: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    /**
+     * Resends email verification email to user.
+     *
+     * @param request the request containing email
+     * @return response indicating success
+     */
+    @PostMapping("/resend-verification")
+    public ResponseEntity<ResponseWrapper<ForgotPasswordResponseDto>> resendVerification(
+            @Valid @RequestBody ForgotPasswordRequestDto request) {
+        log.info("Mobile resend verification request for email: {}", request.getEmail());
+        
+        try {
+            ForgotPasswordResponseDto response = authService.resendEmailVerification(request.getEmail());
+            
+            ResponseWrapper<ForgotPasswordResponseDto> wrapper = new ResponseWrapper<>(
+                    true,
+                    HttpStatus.OK.value(),
+                    "Verification email sent",
+                    response
+            );
+            
+            log.info("Mobile resend verification successful for: {}", request.getEmail());
+            return ResponseEntity.ok(wrapper);
+            
+        } catch (Exception e) {
+            log.error("Mobile resend verification failed for: {}", request.getEmail(), e);
+            throw new ApiException("Resend verification failed: " + e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 }

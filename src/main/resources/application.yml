@@ -1,0 +1,115 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}  # Default to 'dev' profile, can be overridden via environment variable
+  application:
+    name: taarifu-engine-api
+  
+  # Database Configuration (MySQL)
+  # Set DB_URL, DB_USERNAME, and DB_PASSWORD as environment variables
+  # For local development, use application-dev.yml to provide defaults
+  datasource:
+    url: ${DB_URL}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 600000
+      connection-timeout: 20000
+  
+  # JPA Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  # Mail Configuration
+  # Set MAIL_HOST, MAIL_PORT, MAIL_USERNAME, MAIL_PASSWORD, and MAIL_FROM as environment variables
+  # MAIL_USERNAME and MAIL_PASSWORD are REQUIRED (no defaults)
+  mail:
+    # Brevo SMTP (Current)
+    host: ${MAIL_HOST}
+    port: ${MAIL_PORT}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    from: ${MAIL_FROM}
+    
+    # Alternative Gmail SMTP (Uncomment to use)
+    # host: ${MAIL_HOST}
+    # port: ${MAIL_PORT}
+    # username: ${MAIL_USERNAME}
+    # password: ${MAIL_PASSWORD}  # Use App Password, not regular password
+    # from: ${MAIL_FROM}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 3000
+          writetimeout: 5000
+          debug: true
+
+# Logging Configuration
+logging:
+  level:
+    com.taarifu_engine_api: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.mail: DEBUG
+    com.sun.mail: DEBUG
+
+# JWT Configuration
+# Set JWT_SECRET as environment variable (REQUIRED - no default for security)
+# JWT_SECRET should be a base64-encoded string, at least 32 bytes
+# Generate with: openssl rand -base64 32
+jwt:
+  secret: ${JWT_SECRET}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:36000}  # 10 hours in seconds
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:604800}  # 7 days in seconds
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
+# Security Configuration
+security:
+  account-lockout:
+    max-attempts: 5
+    lockout-duration-minutes: 30
+  password:
+    expiry-days: 90
+  email-verification:
+    token-expiry-hours: 24
+
+# SMS Configuration (Optional)
+# Set SMS_USERNAME and SMS_PASSWORD as environment variables if SMS is enabled
+# SMS_USERNAME and SMS_PASSWORD are REQUIRED if SMS_ENABLED=true
+sms:
+  provider: ${SMS_PROVIDER}
+  username: ${SMS_USERNAME}
+  password: ${SMS_PASSWORD}
+  sender-id: ${SMS_SENDER_ID}
+  enabled: ${SMS_ENABLED}

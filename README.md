@@ -84,6 +84,30 @@ src/main/java/com/taarifu_engine_api/
 - Maven 3.6+
 - MySQL 8.0+
 - Git
+- Environment variables configured (see [Configuration Setup](#-configuration-setup))
+
+### Configuration Setup
+
+This application uses environment variables for all sensitive credentials. This ensures:
+- ✅ No credentials in version control
+- ✅ Easy credential rotation
+- ✅ Environment-specific configuration
+
+**Quick Start:**
+1. Copy `.env.example` to `.env` in the project root
+2. Fill in required environment variables:
+   ```bash
+   # Required
+   MAIL_USERNAME=your-email@smtp-brevo.com
+   MAIL_PASSWORD=your-smtp-password
+   JWT_SECRET=$(openssl rand -base64 32)
+   
+   # Optional (defaults provided for local development)
+   DB_USERNAME=root
+   DB_PASSWORD=rootroot
+   ```
+
+**For detailed configuration instructions, see [CONFIGURATION.md](CONFIGURATION.md)**
 
 ### Installation Steps
 
@@ -93,9 +117,20 @@ src/main/java/com/taarifu_engine_api/
    cd taarifu-engine-api
    ```
 
-2. **Configure Database**
-   - Create a MySQL database named `taarifu_engine`
-   - Update `application.yml` with your database credentials
+2. **Configure Environment Variables**
+   - Copy `.env.example` to `.env` in the project root
+   - Fill in all required environment variables (see [CONFIGURATION.md](CONFIGURATION.md) for details)
+   - **Required variables:**
+     - `MAIL_USERNAME` - SMTP email username
+     - `MAIL_PASSWORD` - SMTP email password
+     - `JWT_SECRET` - JWT signing secret (generate with: `openssl rand -base64 32`)
+   - **Optional variables** (have defaults for local development):
+     - `DB_USERNAME` - Database username (default: `root`)
+     - `DB_PASSWORD` - Database password (default: `rootroot`)
+     - `MAIL_HOST` - SMTP host (default: `smtp-relay.brevo.com`)
+     - `MAIL_PORT` - SMTP port (default: `587`)
+   
+   For detailed configuration instructions, see [CONFIGURATION.md](CONFIGURATION.md)
 
 3. **Build the project**
    ```bash
@@ -111,13 +146,24 @@ src/main/java/com/taarifu_engine_api/
    - API Base URL: `http://localhost:8080`
    - Health Check: `http://localhost:8080/api/v1/health`
 
+### Database Migrations
+
+Before deploying updates, check the `migrations/` directory for any required SQL scripts.
+
+**Current Migration:**
+- `migrations/001_fix_user_version_field.sql` - Fixes NULL version values in users table
+  - **When to run**: Before deploying code that initializes User version field to 0L
+  - **Command**: `mysql -u [username] -p [database_name] < migrations/001_fix_user_version_field.sql`
+  - **What it does**: Updates all existing User records with NULL version values to 0
+
 ## 🔐 Authentication
 
 ### Default Admin User
-The system automatically creates a root admin user on first startup:
-- **Username**: `rootadmin`
-- **Email**: `root@email.com`
-- **Password**: `admin123` (change on first login)
+The system automatically creates a root admin user on first startup (only if no users exist):
+- **Username**: `rootadmin` (configurable via `ROOT_ADMIN_USERNAME`)
+- **Email**: `root@email.com` (configurable via `ROOT_ADMIN_EMAIL`)
+- **Password**: `RootAdmin@2024!Secure` (configurable via `ROOT_ADMIN_PASSWORD`)
+- **⚠️ Important**: Change the root password immediately after first login!
 
 ### JWT Token
 Include the JWT token in the Authorization header:

@@ -30,6 +30,9 @@ public class ProfileResponseDto {
     private String profilePictureUrl;
     private String bio;
     private Boolean isActive;
+    private String whatsappNumber;
+    private String socialMediaLinks;
+    private String civicInterests;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     

@@ -14,6 +14,10 @@ import com.taarifu_engine_api.modules.userandrole.domain.dto.CreateAdminUserDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.PasswordValidationDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.ResetPasswordDto;
 import com.taarifu_engine_api.modules.userandrole.domain.dto.UpdateAdminUserDto;
+import com.taarifu_engine_api.modules.userandrole.domain.dto.AccountLockoutDto;
+import com.taarifu_engine_api.modules.userandrole.domain.enums.UserStatus;
+import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto;
+import com.taarifu_engine_api.modules.common.exception.ApiException;
 import com.taarifu_engine_api.modules.userandrole.service.AdminUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -178,6 +182,88 @@ public class AdminUserController {
         PageResponseWrapper<AdminUserResponseDto> response = PageResponseWrapper.fromPage(
             adminUsers,
             "Admin users retrieved successfully"
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Searches admin users by query string (username, email, or phone number).
+     * Case-insensitive partial matching with OR logic.
+     *
+     * @param q the search query string (required)
+     * @param page page number (0-indexed, default: 0)
+     * @param size number of items per page (default: 10)
+     * @param sortBy field to sort by (default: createdAt)
+     * @param sortDir sort direction: asc or desc (default: desc)
+     * @return a page of admin user responses matching the search criteria
+     */
+    @GetMapping("/admin-users/search")
+    public ResponseEntity<PageResponseWrapper<AdminUserResponseDto>> searchAdminUsers(
+            @RequestParam(name = "q") String query,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) {
+        
+        log.info("Searching admin users - query: {}, page: {}, size: {}, sortBy: {}, sortDir: {}", 
+            query, page, size, sortBy, sortDir);
+        
+        // Validate query parameter
+        if (query == null || query.trim().isEmpty()) {
+            throw new ApiException("Search query parameter 'q' is required", HttpStatus.BAD_REQUEST);
+        }
+        
+        // Create sort direction
+        Sort.Direction direction = sortDir.equalsIgnoreCase("asc") 
+            ? Sort.Direction.ASC 
+            : Sort.Direction.DESC;
+        
+        // Create pageable with sorting
+        Pageable pageable = PageRequest.of(page, size, Sort.by(direction, sortBy));
+        
+        // Perform search
+        Page<AdminUserResponseDto> adminUsers = adminUserService.searchAdminUsers(query.trim(), pageable);
+        
+        // Create response
+        PageResponseWrapper<AdminUserResponseDto> response = PageResponseWrapper.fromPage(
+            adminUsers,
+            "Admin users retrieved successfully"
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Retrieves admin users by status with pagination.
+     *
+     * @param status the status to filter by (ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION)
+     * @param pageable pagination parameters
+     * @return a page of admin user responses
+     */
+    @GetMapping("/admin-users/status/{status}")
+    public ResponseEntity<PageResponseWrapper<AdminUserResponseDto>> getAdminUsersByStatus(
+            @PathVariable String status,
+            @PageableDefault(size = 20) Pageable pageable) {
+        
+        log.info("Retrieving admin users with status: {}", status);
+        
+        // Convert string to enum, handling case-insensitive matching
+        UserStatus userStatus;
+        try {
+            userStatus = UserStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(
+                "Invalid status: " + status + ". Valid values are: ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+        
+        Page<AdminUserResponseDto> adminUsers = adminUserService.getAdminUsersByStatus(userStatus, pageable);
+        
+        PageResponseWrapper<AdminUserResponseDto> response = PageResponseWrapper.fromPage(
+            adminUsers,
+            "Admin users with status " + status + " retrieved successfully"
         );
         
         return ResponseEntity.ok(response);
@@ -413,6 +499,55 @@ public class AdminUserController {
     }
 
     /**
+     * Retrieves admin user summaries by status with pagination.
+     * Optimized for frontend lists and tables.
+     *
+     * @param status the status to filter by
+     * @param page pagination page number
+     * @param size pagination size
+     * @param sortBy field to sort by
+     * @param sortDir sort direction (asc/desc)
+     * @return a page of admin user summaries
+     */
+    @GetMapping("/admin-users/status/{status}/summaries")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<PageResponseWrapper<AdminUserSummaryDto>> getAdminUserSummariesByStatus(
+            @PathVariable String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDir) {
+        
+        log.info("Getting admin user summaries with status: {} - page: {}, size: {}, sort: {} {}", 
+            status, page, size, sortBy, sortDir);
+        
+        // Convert string to enum
+        UserStatus userStatus;
+        try {
+            userStatus = UserStatus.valueOf(status.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(
+                "Invalid status: " + status + ". Valid values are: ACTIVE, INACTIVE, SUSPENDED, PENDING_VERIFICATION",
+                HttpStatus.BAD_REQUEST
+            );
+        }
+        
+        Sort sort = sortDir.equalsIgnoreCase("desc") 
+            ? Sort.by(sortBy).descending() 
+            : Sort.by(sortBy).ascending();
+        
+        Pageable pageable = PageRequest.of(page, size, sort);
+        Page<AdminUserSummaryDto> adminUsers = adminUserService.getAdminUserSummariesByStatus(userStatus, pageable);
+        
+        PageResponseWrapper<AdminUserSummaryDto> response = PageResponseWrapper.fromPage(
+            adminUsers,
+            "Admin user summaries with status " + status + " retrieved successfully"
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Gets a single admin user summary by UID.
      * Optimized for frontend quick views and dropdowns.
      */
@@ -554,5 +689,136 @@ public class AdminUserController {
                 null
             ));
         }
+    }
+
+    /**
+     * Soft deletes an admin user by UID.
+     *
+     * @param uid the UID of the admin user to delete
+     * @param deletedByUid the UID of the user performing the deletion (optional, can be extracted from security context)
+     * @return the deleted admin user response
+     */
+    @DeleteMapping("/admin-users/uid/{uid}")
+    public ResponseEntity<ResponseWrapper<AdminUserResponseDto>> softDeleteUser(
+            @PathVariable String uid,
+            @RequestParam(required = false) String deletedByUid) {
+        
+        log.info("Soft deleting admin user with UID: {}", uid);
+        
+        // If deletedByUid is not provided, try to get from security context
+        // For now, use a placeholder - this should be extracted from JWT token in production
+        String deletedBy = deletedByUid != null ? deletedByUid : "system";
+        
+        AdminUserResponseDto adminUser = adminUserService.softDeleteUser(uid, deletedBy);
+        
+        ResponseWrapper<AdminUserResponseDto> response = new ResponseWrapper<>(
+            true,
+            HttpStatus.OK.value(),
+            "Admin user deleted successfully",
+            adminUser
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Restores a soft-deleted admin user by UID.
+     *
+     * @param uid the UID of the admin user to restore
+     * @return the restored admin user response
+     */
+    @PostMapping("/admin-users/uid/{uid}/restore")
+    public ResponseEntity<ResponseWrapper<AdminUserResponseDto>> restoreUser(
+            @PathVariable String uid) {
+        
+        log.info("Restoring admin user with UID: {}", uid);
+        
+        AdminUserResponseDto adminUser = adminUserService.restoreUser(uid);
+        
+        ResponseWrapper<AdminUserResponseDto> response = new ResponseWrapper<>(
+            true,
+            HttpStatus.OK.value(),
+            "Admin user restored successfully",
+            adminUser
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Locks an admin user account by UID.
+     *
+     * @param uid the UID of the admin user
+     * @param request the lockout request containing lockout minutes and reason
+     * @return the updated admin user response
+     */
+    @PostMapping("/admin-users/uid/{uid}/lock")
+    public ResponseEntity<ResponseWrapper<AdminUserResponseDto>> lockUserAccount(
+            @PathVariable String uid,
+            @RequestBody(required = false) AccountLockoutDto request) {
+        
+        log.info("Locking admin user account with UID: {}", uid);
+        
+        Integer lockoutMinutes = (request != null && request.getLockoutMinutes() != null) 
+            ? request.getLockoutMinutes() : 30;
+        
+        AdminUserResponseDto adminUser = adminUserService.lockUserAccount(uid, lockoutMinutes);
+        
+        ResponseWrapper<AdminUserResponseDto> response = new ResponseWrapper<>(
+            true,
+            HttpStatus.OK.value(),
+            "Admin user account locked successfully",
+            adminUser
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Unlocks an admin user account by UID.
+     *
+     * @param uid the UID of the admin user
+     * @return the updated admin user response
+     */
+    @PostMapping("/admin-users/uid/{uid}/unlock")
+    public ResponseEntity<ResponseWrapper<AdminUserResponseDto>> unlockUserAccount(
+            @PathVariable String uid) {
+        
+        log.info("Unlocking admin user account with UID: {}", uid);
+        
+        AdminUserResponseDto adminUser = adminUserService.unlockUserAccount(uid);
+        
+        ResponseWrapper<AdminUserResponseDto> response = new ResponseWrapper<>(
+            true,
+            HttpStatus.OK.value(),
+            "Admin user account unlocked successfully",
+            adminUser
+        );
+        
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Resends email verification email to an admin user by UID.
+     *
+     * @param uid the UID of the admin user
+     * @return response indicating success
+     */
+    @PostMapping("/admin-users/uid/{uid}/resend-verification")
+    public ResponseEntity<ResponseWrapper<ForgotPasswordResponseDto>> resendVerification(
+            @PathVariable String uid) {
+        
+        log.info("Resending verification email for admin user with UID: {}", uid);
+        
+        ForgotPasswordResponseDto response = adminUserService.resendVerificationEmail(uid);
+        
+        ResponseWrapper<ForgotPasswordResponseDto> wrapper = new ResponseWrapper<>(
+            true,
+            HttpStatus.OK.value(),
+            "Verification email sent successfully",
+            response
+        );
+        
+        return ResponseEntity.ok(wrapper);
     }
 }

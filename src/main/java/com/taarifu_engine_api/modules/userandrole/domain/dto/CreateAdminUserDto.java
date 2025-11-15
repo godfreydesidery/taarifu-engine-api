@@ -36,6 +36,15 @@ public class CreateAdminUserDto {
     @Size(max = 255, message = "Email must not exceed 255 characters")
     private String email;
 
+    /**
+     * Phone number for the admin user (optional).
+     * Must be a valid Tanzanian phone number format.
+     * Used for SMS notifications and security alerts.
+     */
+    @Pattern(regexp = "^(?:\\+255|0)?(6[1-24-9]\\d{7}|7[1-9]\\d{7})$", 
+             message = "Phone number must be a valid Tanzanian phone number")
+    @Size(max = 20, message = "Phone number must not exceed 20 characters")
+    private String phoneNumber;
 
     /**
      * Whether the admin user should be required to change password on first login.

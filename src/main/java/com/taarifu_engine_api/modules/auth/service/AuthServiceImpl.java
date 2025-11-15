@@ -20,10 +20,12 @@ import com.taarifu_engine_api.modules.userandrole.domain.enums.UserType;
 import com.taarifu_engine_api.modules.userandrole.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
@@ -44,6 +46,19 @@ public class AuthServiceImpl implements AuthService {
     private final EmailService emailService;
     private final CitizenService citizenService;
     private final ProfileRepository profileRepository;
+
+    // Configuration properties from application.yml with defaults
+    @Value("${security.account-lockout.max-attempts:5}")
+    private int maxLoginAttempts;
+
+    @Value("${security.account-lockout.lockout-duration-minutes:30}")
+    private int lockoutDurationMinutes;
+
+    @Value("${security.email-verification.token-expiry-hours:24}")
+    private int emailVerificationTokenExpiryHours;
+
+    @Value("${security.password.expiry-days:90}")
+    private int passwordExpiryDays;
 
     @Override
     public AuthResponseDto authenticateAdmin(AuthRequestDto request) {
@@ -131,9 +146,9 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public User validateCredentials(String usernameOrEmail, String password) {
-        // Find user by username or email
-        Optional<User> userOpt = userRepository.findByUsername(usernameOrEmail)
-                .or(() -> userRepository.findByEmail(usernameOrEmail));
+        // Find user by username or email (excluding soft-deleted)
+        Optional<User> userOpt = userRepository.findByUsernameExcludingDeleted(usernameOrEmail)
+                .or(() -> userRepository.findByEmailExcludingDeleted(usernameOrEmail));
 
         if (userOpt.isEmpty()) {
             log.warn("Authentication failed: User not found - {}", usernameOrEmail);
@@ -142,18 +157,47 @@ public class AuthServiceImpl implements AuthService {
 
         User user = userOpt.get();
 
+        // Check if account is locked
+        if (user.isAccountLocked()) {
+            log.warn("Authentication failed: Account is locked for user - {}", user.getUsername());
+            throw new ApiException("Account is locked. Please try again later or contact support.", HttpStatus.FORBIDDEN);
+        }
+
         // Verify password
         if (!passwordEncoder.matches(password, user.getPasswordHash())) {
             log.warn("Authentication failed: Invalid password for user - {}", user.getUsername());
+            // Increment failed login attempts
+            handleFailedLogin(usernameOrEmail);
             return null;
         }
+
+        // Reset failed login attempts on successful authentication
+        resetFailedLoginAttempts(user);
 
         return user;
     }
 
     @Override
     public boolean canUserAuthenticate(User user) {
-        return user.isActive();
+        // Check if user is active
+        if (!user.isActive()) {
+            return false;
+        }
+
+        // Check if account is locked
+        if (user.isAccountLocked()) {
+            return false;
+        }
+
+        // Check if user is soft-deleted
+        if (user.isDeleted()) {
+            return false;
+        }
+
+        // Note: Email verification check can be added here if required for authentication
+        // For now, we allow unverified users to authenticate but may restrict certain features
+
+        return true;
     }
 
     @Override
@@ -174,8 +218,8 @@ public class AuthServiceImpl implements AuthService {
                 throw new ApiException("Invalid or expired refresh token", HttpStatus.UNAUTHORIZED);
             }
 
-            // Find user and generate new tokens
-            Optional<User> userOpt = userRepository.findByUsername(username);
+            // Find user and generate new tokens (excluding soft-deleted)
+            Optional<User> userOpt = userRepository.findByUsernameExcludingDeleted(username);
             if (userOpt.isEmpty()) {
                 throw new ApiException("User not found", HttpStatus.NOT_FOUND);
             }
@@ -224,6 +268,12 @@ public class AuthServiceImpl implements AuthService {
         authResponse.setRequirePasswordChange(user.getRequirePasswordChange());
         authResponse.setLastLoginAt(user.getLastLoginAt());
         authResponse.setCreatedAt(user.getCreatedAt());
+        
+        // Set new fields
+        authResponse.setEmailVerified(user.isEmailVerified());
+        authResponse.setAccountLocked(user.isAccountLocked());
+        authResponse.setAccountLockedUntil(user.getAccountLockedUntil());
+        authResponse.setPasswordExpiresAt(user.getPasswordExpiresAt());
         
         // Set designations (placeholder implementation - can be enhanced later)
         authResponse.setDesignations(getUserDesignations(user));
@@ -291,7 +341,23 @@ public class AuthServiceImpl implements AuthService {
      */
     private void updateLastLogin(User user) {
         user.setLastLoginAt(LocalDateTime.now());
-        userRepository.save(user);
+        try {
+            userRepository.save(user);
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.warn("Concurrent update detected for user during last login update: {}", user.getUsername());
+            // For last login updates, we can retry once or just log the warning
+            // Last login timestamp is not critical, so we'll just log and continue
+            try {
+                // Retry once with fresh entity
+                User refreshedUser = userRepository.findById(user.getId())
+                    .orElseThrow(() -> new ApiException("User not found", HttpStatus.NOT_FOUND));
+                refreshedUser.setLastLoginAt(LocalDateTime.now());
+                userRepository.save(refreshedUser);
+            } catch (Exception retryException) {
+                log.error("Failed to update last login after retry for user: {}", user.getUsername(), retryException);
+                // Don't throw - last login update failure shouldn't break authentication
+            }
+        }
     }
 
     @Override
@@ -381,8 +447,9 @@ public class AuthServiceImpl implements AuthService {
         user.setRequirePasswordChange(false); // Password reset completed
         user.clearPasswordResetToken(); // Clear the reset token
         
-        // TEMPORARY: Update raw password for testing (remove in production)
-        user.setRawPassword(request.getNewPassword());
+        // Update password tracking fields
+        user.setPasswordChangedAt(LocalDateTime.now());
+        user.updatePasswordExpiry(); // Sets passwordExpiresAt based on passwordExpiryDays
         
         userRepository.save(user);
         
@@ -494,6 +561,160 @@ public class AuthServiceImpl implements AuthService {
             log.info("Password changed notification sent to: {}", user.getEmail());
         } catch (Exception e) {
             log.error("Failed to send password changed notification to: {}", user.getEmail(), e);
+            // Don't throw exception - email failure shouldn't break the flow
+        }
+    }
+
+    @Override
+    public boolean verifyEmail(String token) {
+        if (token == null || token.trim().isEmpty()) {
+            return false;
+        }
+
+        Optional<User> userOpt = userRepository.findByEmailVerificationToken(token);
+        if (userOpt.isEmpty()) {
+            log.warn("Email verification failed: Invalid token");
+            return false;
+        }
+
+        User user = userOpt.get();
+
+        // Check if token is expired
+        if (user.isEmailVerificationTokenExpired()) {
+            log.warn("Email verification failed: Token expired for user - {}", user.getUsername());
+            user.clearEmailVerificationToken();
+            userRepository.save(user);
+            return false;
+        }
+
+        // Verify email
+        user.setEmailVerified(true);
+        user.setEmailVerifiedAt(LocalDateTime.now());
+        user.clearEmailVerificationToken();
+        userRepository.save(user);
+
+        log.info("Email verified successfully for user: {}", user.getUsername());
+        return true;
+    }
+
+    @Override
+    public ForgotPasswordResponseDto resendEmailVerification(String email) {
+        log.info("Resending email verification for: {}", email);
+
+        Optional<User> userOpt = userRepository.findByEmailExcludingDeleted(email);
+        if (userOpt.isEmpty()) {
+            log.warn("Resend verification: User not found - {}", email);
+            // Return success to prevent email enumeration
+            ForgotPasswordResponseDto response = new ForgotPasswordResponseDto();
+            response.setSuccess(true);
+            response.setMessage("If an account with that email exists, verification email has been sent.");
+            response.setEmail(email);
+            response.setCheckEmail(true);
+            response.setTokenExpirationMinutes(emailVerificationTokenExpiryHours * 60);
+            return response;
+        }
+
+        User user = userOpt.get();
+
+        // Check if already verified
+        if (user.isEmailVerified()) {
+            ForgotPasswordResponseDto response = new ForgotPasswordResponseDto();
+            response.setSuccess(true);
+            response.setMessage("Email is already verified.");
+            response.setEmail(email);
+            response.setCheckEmail(false);
+            response.setTokenExpirationMinutes(0);
+            return response;
+        }
+
+        // Generate new verification token
+        String verificationToken = generateSecureResetToken();
+        LocalDateTime expirationTime = LocalDateTime.now().plusHours(emailVerificationTokenExpiryHours);
+
+        user.setEmailVerificationToken(verificationToken);
+        user.setEmailVerificationTokenExpiresAt(expirationTime);
+        userRepository.save(user);
+
+        log.info("Generated email verification token for user: {}", user.getUsername());
+
+        // Send verification email
+        sendEmailVerificationEmail(user, verificationToken);
+
+        ForgotPasswordResponseDto response = new ForgotPasswordResponseDto();
+        response.setSuccess(true);
+        response.setMessage("Verification email has been sent. Please check your email.");
+        response.setEmail(email);
+        response.setCheckEmail(true);
+        response.setTokenExpirationMinutes(emailVerificationTokenExpiryHours * 60);
+        return response;
+    }
+
+    @Override
+    public void handleFailedLogin(String usernameOrEmail) {
+        Optional<User> userOpt = userRepository.findByUsernameExcludingDeleted(usernameOrEmail)
+                .or(() -> userRepository.findByEmailExcludingDeleted(usernameOrEmail));
+
+        if (userOpt.isEmpty()) {
+            return; // User not found, can't track failed attempts
+        }
+
+        User user = userOpt.get();
+
+        // Increment failed login attempts
+        user.incrementFailedLoginAttempts();
+
+        // Lock account if threshold reached
+        if (user.getFailedLoginAttempts() >= maxLoginAttempts) {
+            user.lockAccount(lockoutDurationMinutes);
+            log.warn("Account locked due to {} failed login attempts for user: {}", 
+                    user.getFailedLoginAttempts(), user.getUsername());
+        }
+
+        userRepository.save(user);
+    }
+
+    @Override
+    public void resetFailedLoginAttempts(User user) {
+        if (user.getFailedLoginAttempts() > 0) {
+            user.resetFailedLoginAttempts();
+            userRepository.save(user);
+            log.debug("Reset failed login attempts for user: {}", user.getUsername());
+        }
+    }
+
+    /**
+     * Send email verification email to user
+     */
+    private void sendEmailVerificationEmail(User user, String verificationToken) {
+        try {
+            // Create verification link
+            String verificationLink = "http://localhost:3000/verify-email?token=" + verificationToken;
+
+            String htmlContent = String.format("""
+                <html>
+                <body>
+                    <h2>Email Verification</h2>
+                    <p>Hello %s,</p>
+                    <p>Thank you for registering. Please verify your email address by clicking the link below:</p>
+                    <p><a href="%s" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Verify Email</a></p>
+                    <p>This link will expire in %d hours.</p>
+                    <p>If you did not create an account, please ignore this email.</p>
+                    <br>
+                    <p>Best regards,<br>Taarifu Engine Team</p>
+                </body>
+                </html>
+                """, user.getUsername(), verificationLink, emailVerificationTokenExpiryHours);
+
+            emailService.sendSimpleEmailAsync(
+                user.getEmail(),
+                "Verify Your Email Address",
+                htmlContent,
+                EmailType.WELCOME
+            );
+
+            log.info("Email verification email sent to: {}", user.getEmail());
+        } catch (Exception e) {
+            log.error("Failed to send email verification email to: {}", user.getEmail(), e);
             // Don't throw exception - email failure shouldn't break the flow
         }
     }

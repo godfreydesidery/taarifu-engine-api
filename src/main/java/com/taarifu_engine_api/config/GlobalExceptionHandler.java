@@ -3,12 +3,14 @@ package com.taarifu_engine_api.config;
 import com.taarifu_engine_api.modules.common.domain.util.ResponseWrapper;
 import com.taarifu_engine_api.modules.common.exception.ApiException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -135,7 +137,25 @@ public class GlobalExceptionHandler {
                 "Access denied: " + ex.getMessage(),
                 null
         );
-
+        
         return ResponseEntity.status(403).body(response);
+    }
+
+    /**
+     * Handle NoResourceFoundException - 404 errors for non-existent endpoints
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ResponseWrapper<Void>> handleNoResourceFoundException(
+            NoResourceFoundException ex) {
+        log.warn("Resource not found: {}", ex.getResourcePath());
+        
+        ResponseWrapper<Void> response = new ResponseWrapper<>(
+                false,
+                404,
+                "Endpoint not found: " + ex.getResourcePath(),
+                null
+        );
+        
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 }

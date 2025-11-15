@@ -2,6 +2,7 @@ package com.taarifu_engine_api.api.admin;
 
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthRequestDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.AuthResponseDto;
+import com.taarifu_engine_api.modules.auth.domain.dto.EmailVerificationDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordRequestDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.ForgotPasswordResponseDto;
 import com.taarifu_engine_api.modules.auth.domain.dto.ResetPasswordWithTokenDto;
@@ -91,6 +92,48 @@ public class AdminAuthController {
                 true, 200, 
                 isValid ? "Token is valid" : "Token is invalid or expired", 
                 isValid
+        );
+        
+        return ResponseEntity.ok(wrapper);
+    }
+
+    /**
+     * Verifies user email using verification token.
+     *
+     * @param request the email verification request containing token
+     * @return response indicating success
+     */
+    @PostMapping("/verify-email")
+    public ResponseEntity<ResponseWrapper<Boolean>> verifyEmail(
+            @Valid @RequestBody EmailVerificationDto request) {
+        log.info("Email verification request");
+        
+        boolean verified = authService.verifyEmail(request.getToken());
+        
+        ResponseWrapper<Boolean> wrapper = new ResponseWrapper<>(
+                true, 200,
+                verified ? "Email verified successfully" : "Email verification failed. Token is invalid or expired",
+                verified
+        );
+        
+        return ResponseEntity.ok(wrapper);
+    }
+
+    /**
+     * Resends email verification email to user.
+     *
+     * @param request the request containing email
+     * @return response indicating success
+     */
+    @PostMapping("/resend-verification")
+    public ResponseEntity<ResponseWrapper<ForgotPasswordResponseDto>> resendVerification(
+            @Valid @RequestBody ForgotPasswordRequestDto request) {
+        log.info("Resend verification request for email: {}", request.getEmail());
+        
+        ForgotPasswordResponseDto response = authService.resendEmailVerification(request.getEmail());
+        
+        ResponseWrapper<ForgotPasswordResponseDto> wrapper = new ResponseWrapper<>(
+                true, 200, "Verification email sent", response
         );
         
         return ResponseEntity.ok(wrapper);
